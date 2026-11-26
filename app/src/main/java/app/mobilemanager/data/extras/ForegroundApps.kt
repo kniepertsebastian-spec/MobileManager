@@ -1,11 +1,9 @@
 package app.mobilemanager.data.extras
 
-import android.accessibilityservice.AccessibilityService
 import android.app.Service
 import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.BroadcastReceiver
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -17,7 +15,6 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
-import android.view.accessibility.AccessibilityEvent
 import android.view.inputmethod.InputMethodManager
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -51,8 +48,9 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Zentrale Stelle für App-Wechsel – gespeist von der Bedienungshilfe (sofort) oder ersatzweise
- * vom UsageStats-Dienst (ca. 1 s Verzögerung). Verteilt an Fokus-Bremse und Lautstärke pro App.
+ * Zentrale Stelle für App-Wechsel – gespeist vom UsageStats-Dienst (ca. 1 s Verzögerung).
+ * Verteilt an Fokus-Bremse und Lautstärke pro App. Bewusst ohne Bedienungshilfe, damit die einzige
+ * Bedienungshilfe der App auf die Android-Einstellungen beschränkt bleibt (Play-Protect-Härtung).
  */
 @Singleton
 class ForegroundAppTracker @Inject constructor(
@@ -166,57 +164,8 @@ class PerAppVolumeController @Inject constructor(
 }
 
 /**
- * Bevorzugte Quelle für App-Wechsel: eine eigene, schlanke Bedienungshilfe, die nur
- * TYPE_WINDOW_STATE_CHANGED liest (keine Fensterinhalte). Ohne aktives Modul abonniert sie gar keine Ereignisse.
- */
-@AndroidEntryPoint
-class AppSwitchAccessibilityService : AccessibilityService() {
-
-    @Inject lateinit var tracker: ForegroundAppTracker
-    @Inject lateinit var settings: ExtrasSettingsRepository
-    @Inject lateinit var coordinator: ExtrasCoordinator
-
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-
-    override fun onServiceConnected() {
-        super.onServiceConnected()
-        coordinator.sync()
-        scope.launch {
-            settings.settings.map { it.needsForegroundApp }.distinctUntilChanged().collect { needed ->
-                serviceInfo?.let { info ->
-                    info.eventTypes = if (needed) AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED else 0
-                    serviceInfo = info
-                }
-                if (!needed) tracker.reset()
-            }
-        }
-    }
-
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        if (event?.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
-        tracker.onForeground(event.packageName?.toString(), event.className?.toString())
-    }
-
-    override fun onInterrupt() = Unit
-
-    override fun onUnbind(intent: Intent?): Boolean {
-        scope.cancel()
-        coordinator.sync()
-        return super.onUnbind(intent)
-    }
-
-    companion object {
-        fun isEnabled(context: Context): Boolean {
-            val expected = ComponentName(context, AppSwitchAccessibilityService::class.java)
-            val enabled = Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: return false
-            return enabled.split(':').any { ComponentName.unflattenFromString(it) == expected }
-        }
-    }
-}
-
-/**
- * Ersatz ohne Bedienungshilfe: Vordergrunddienst, der bei eingeschaltetem Display jede Sekunde die
- * UsageStats-Ereignisse liest. Bei ausgeschaltetem Display ruht er komplett.
+ * Vordergrunddienst, der bei eingeschaltetem Display jede Sekunde die UsageStats-Ereignisse liest.
+ * Bei ausgeschaltetem Display ruht er komplett.
  */
 @AndroidEntryPoint
 class ForegroundMonitorService : Service() {
@@ -256,7 +205,7 @@ class ForegroundMonitorService : Service() {
             }
             since = now
             latest?.let { (pkg, cls) -> tracker.onForeground(pkg, cls) }
-            // Gelegentlich prüfen, ob der Dienst noch gebraucht wird (z. B. Bedienungshilfe inzwischen aktiv).
+            // Gelegentlich prüfen, ob der Dienst noch gebraucht wird (z. B. Nutzungszugriff entzogen).
             if (++checks % 30 == 0) coordinator.sync()
             delay(POLL_INTERVAL_MS)
         }
@@ -294,7 +243,7 @@ class ForegroundMonitorService : Service() {
 }
 
 /**
- * Startet den UsageStats-Dienst nur, wenn ein Extra ihn wirklich braucht und keine Bedienungshilfe aktiv ist.
+ * Startet den UsageStats-Dienst nur, wenn ein Extra ihn wirklich braucht.
  * Ausgeschaltete Module verbrauchen damit keinerlei Hintergrundressourcen.
  */
 @Singleton
@@ -310,7 +259,7 @@ class ExtrasCoordinator @Inject constructor(
     }
 
     fun apply(s: ExtrasSettings) {
-        val needsMonitor = s.needsForegroundApp && !AppSwitchAccessibilityService.isEnabled(context) && permissions.hasUsageAccess()
+        val needsMonitor = s.needsForegroundApp && permissions.hasUsageAccess()
         val intent = Intent(context, ForegroundMonitorService::class.java)
         if (needsMonitor) {
             runCatching { ContextCompat.startForegroundService(context, intent) }
@@ -319,11 +268,7 @@ class ExtrasCoordinator @Inject constructor(
         }
     }
 
-    fun detectionMode(): DetectionMode = when {
-        AppSwitchAccessibilityService.isEnabled(context) -> DetectionMode.ACCESSIBILITY
-        permissions.hasUsageAccess() -> DetectionMode.USAGE_STATS
-        else -> DetectionMode.NONE
-    }
+    fun detectionMode(): DetectionMode = if (permissions.hasUsageAccess()) DetectionMode.USAGE_STATS else DetectionMode.NONE
 }
 
-enum class DetectionMode { ACCESSIBILITY, USAGE_STATS, NONE }
+enum class DetectionMode { USAGE_STATS, NONE }

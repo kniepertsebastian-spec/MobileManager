@@ -58,6 +58,7 @@
     <application
         android:name=".MobileManagerApp"
         android:allowBackup="false"
+        android:usesCleartextTraffic="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         tools:ignore="DataExtractionRules"
         android:icon="@mipmap/ic_launcher"
@@ -88,7 +89,7 @@
             </intent-filter>
         </receiver>
 
-        <!-- Optionaler Fallback für "Beenden erzwingen", wenn Shizuku nicht läuft -->
+        <!-- Optionaler Fallback für "Beenden erzwingen", wenn Shizuku nicht läuft – nur für com.android.settings -->
         <service
             android:name=".data.forcestop.ForceStopAccessibilityService"
             android:exported="false"
@@ -173,21 +174,7 @@
                 android:value="Vom Nutzer aktivierter lokaler DNS-Tracker-Blocker (VpnService ohne externen Server)" />
         </service>
 
-        <!-- Phase 3.4: App-Wechsel für Fokus-Bremse & Lautstärke pro App -->
-        <service
-            android:name=".data.extras.AppSwitchAccessibilityService"
-            android:exported="false"
-            android:label="@string/app_switch_service_label"
-            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
-            <intent-filter>
-                <action android:name="android.accessibilityservice.AccessibilityService" />
-            </intent-filter>
-            <meta-data
-                android:name="android.accessibilityservice"
-                android:resource="@xml/accessibility_app_switch_config" />
-        </service>
-
-        <!-- Phase 3.4: Ersatz ohne Bedienungshilfe (nur bei eingeschaltetem Display aktiv) -->
+        <!-- Phase 3.4: Vordergrund-App für Fokus-Bremse & Lautstärke pro App (nur bei eingeschaltetem Display aktiv) -->
         <service
             android:name=".data.extras.ForegroundMonitorService"
             android:exported="false"

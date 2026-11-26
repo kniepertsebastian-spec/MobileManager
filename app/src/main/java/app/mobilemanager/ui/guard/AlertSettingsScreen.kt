@@ -1,5 +1,11 @@
 package app.mobilemanager.ui.guard
 
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.material3.OutlinedSecureTextField
+import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -21,7 +27,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
@@ -226,13 +231,20 @@ private fun Field(label: String, value: String, keyboard: KeyboardType = Keyboar
 
 @Composable
 private fun SecretField(label: String, value: String, onChange: (String) -> Unit) {
-    OutlinedTextField(
-        value = value,
-        onValueChange = onChange,
+    // Zustandsbasiertes Passwortfeld (ersetzt das abgekündigte PasswordVisualTransformation).
+    val state = rememberTextFieldState(value)
+    val currentOnChange by rememberUpdatedState(onChange)
+    // Später geladene Werte (verschlüsselter Speicher) ins Feld übernehmen …
+    LaunchedEffect(value) {
+        if (state.text.toString() != value) state.setTextAndPlaceCursorAtEnd(value)
+    }
+    // … und Eingaben zurückmelden.
+    LaunchedEffect(state) {
+        snapshotFlow { state.text.toString() }.collect { text -> if (text != value) currentOnChange(text) }
+    }
+    OutlinedSecureTextField(
+        state = state,
         label = { Text(label) },
-        singleLine = true,
-        visualTransformation = PasswordVisualTransformation(),
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
         modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
     )
 }

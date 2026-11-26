@@ -80,7 +80,7 @@ class MainViewModel @Inject constructor(
         }
     }
 
-    /** Beim Zurückkehren in die App (z. B. nach dem Einschalten der Bedienungshilfe) neu abgleichen. */
+    /** Beim Zurückkehren in die App (z. B. nach dem Erteilen des Nutzungszugriffs) neu abgleichen. */
     fun onResume() {
         extrasCoordinator.sync()
     }

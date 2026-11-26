@@ -68,7 +68,7 @@ class AppNotifications @Inject constructor(
         )
         manager.createNotificationChannel(
             NotificationChannel(CHANNEL_FOREGROUND_MONITOR, "Fokus-Bremse & Lautstärke", NotificationManager.IMPORTANCE_MIN).apply {
-                description = "Nur aktiv, wenn Fokus-Bremse oder Lautstärke pro App ohne Bedienungshilfe laufen"
+                description = "Nur aktiv, solange Fokus-Bremse oder Lautstärke pro App eingeschaltet sind"
                 setShowBadge(false)
             },
         )
@@ -176,7 +176,7 @@ class AppNotifications @Inject constructor(
         NotificationCompat.Builder(context, CHANNEL_FOREGROUND_MONITOR)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle("Fokus-Bremse & Lautstärke aktiv")
-            .setContentText("Tipp: Mit der Bedienungshilfe reagiert MobileManager sofort und ohne diese Meldung.")
+            .setContentText("Erkennt App-Wechsel – ruht bei ausgeschaltetem Display")
             .setContentIntent(pendingIntent(ID_FOREGROUND_MONITOR, MainActivity.DESTINATION_EXTRAS))
             .setOngoing(true)
             .setSilent(true)

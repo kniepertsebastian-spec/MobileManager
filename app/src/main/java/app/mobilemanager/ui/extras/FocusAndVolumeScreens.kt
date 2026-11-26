@@ -135,25 +135,18 @@ private fun DetectionCard(status: DetectionStatus, needsOverlay: Boolean, viewMo
         Text("App-Erkennung", style = MaterialTheme.typography.titleSmall)
         Text(
             when (status.mode) {
-                DetectionMode.ACCESSIBILITY -> "Über die Bedienungshilfe – sofort und ohne Dauer-Benachrichtigung."
-                DetectionMode.USAGE_STATS -> "Über den Nutzungszugriff (ca. 1 s Verzögerung, stille Dauer-Benachrichtigung). " +
-                    "Schneller geht es mit der Bedienungshilfe."
-                DetectionMode.NONE -> "Keine Erkennung möglich – Bedienungshilfe oder Nutzungszugriff erteilen."
+                DetectionMode.USAGE_STATS -> "Über den Nutzungszugriff (ca. 1 s Verzögerung, stille Dauer-Benachrichtigung " +
+                    "nur bei eingeschaltetem Display)."
+                DetectionMode.NONE -> "Keine Erkennung möglich – bitte den Nutzungszugriff erteilen."
             },
             style = MaterialTheme.typography.bodySmall,
             color = if (status.mode == DetectionMode.NONE) StatusColors.Denied else MaterialTheme.colorScheme.onSurface,
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
-            if (status.mode != DetectionMode.ACCESSIBILITY) {
-                OutlinedButton(onClick = { context.startActivitySafely(viewModel.settingsIntent(PermissionKind.APP_SWITCH_ACCESSIBILITY)) }) {
-                    Text("Bedienungshilfe")
-                }
-            }
-            if (status.mode == DetectionMode.NONE) {
-                OutlinedButton(onClick = { context.startActivitySafely(viewModel.settingsIntent(PermissionKind.USAGE_ACCESS)) }) {
-                    Text("Nutzungszugriff")
-                }
-            }
+        if (status.mode == DetectionMode.NONE) {
+            OutlinedButton(
+                onClick = { context.startActivitySafely(viewModel.settingsIntent(PermissionKind.USAGE_ACCESS)) },
+                modifier = Modifier.padding(top = 8.dp),
+            ) { Text("Nutzungszugriff") }
         }
         if (needsOverlay && !status.canDrawOverlays) {
             Text(

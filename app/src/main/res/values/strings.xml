@@ -2,10 +2,8 @@
 <resources>
     <string name="app_name">MobileManager</string>
     <string name="accessibility_service_label">MobileManager – Beenden erzwingen</string>
-    <string name="accessibility_service_description">Fallback, falls Shizuku nicht läuft: Öffnet die App-Info einer inaktiven App und tippt automatisch auf „Beenden erzwingen“ und „OK“. Der Dienst reagiert ausschließlich auf vom Nutzer gestartete Aufräumvorgänge und liest keine anderen Inhalte.</string>
+    <string name="accessibility_service_description">Hilft beim automatischen Tippen auf „Beenden erzwingen“ und „OK“ in den App-Infos der Android-Einstellungen – nur, wenn Shizuku nicht läuft und du im App-Stopper selbst einen Aufräumvorgang startest. Der Dienst ist auf die Einstellungen-App beschränkt und liest keine Inhalte anderer Apps.</string>
     <string name="device_admin_label">MobileManager – Diebstahl-Erkennung</string>
     <string name="device_admin_description">Erkennt falsche PIN-, Muster- oder Passwort-Eingaben auf dem Sperrbildschirm und löst einen Alarm aus. MobileManager nutzt keine weiteren Administrator-Rechte. Vor dem Deinstallieren in der App unter Wächter → Security deaktivieren.</string>
     <string name="notification_listener_label">MobileManager – Archiv &amp; Digest</string>
-    <string name="app_switch_service_label">MobileManager – Fokus-Bremse &amp; Lautstärke</string>
-    <string name="app_switch_service_description">Erkennt, welche App gerade geöffnet wird – für die Fokus-Bremse (Atempause vor markierten Apps) und die Lautstärke pro App. Der Dienst liest keine Bildschirminhalte und reagiert nur, solange eines dieser Extras eingeschaltet ist.</string>
 </resources>

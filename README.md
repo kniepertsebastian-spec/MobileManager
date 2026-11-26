@@ -39,7 +39,7 @@ Room-Schema v3 (Auto-Migration von v2). Der Launcher ist ein eigenes Gradle-Modu
 | 3.1 | Eigener Startbildschirm (`CATEGORY_HOME`, `singleTask`, transparentes Fenster über dem System-Hintergrund). App-Liste über `LauncherApps` inkl. Arbeitsprofil, Icons asynchron mit LRU-Cache. Seiten per `HorizontalPager` (Raster 4×5 bis 5×6), Dock mit bis zu 5 Apps, App-Drawer per Wischgeste nach oben mit Suche. Langer Druck: App-Info, entfernen, in Ordner verschieben, deinstallieren; langer Druck auf freie Fläche: Ordnen, Hintergrund, Profil, Einstellungen. Die Launcher-Activity ist im Manifest deaktiviert und wird erst per Schalter aktiviert |
 | 3.2 | Auto-Kategorisierung (Finanz-Liste → `ApplicationInfo.category` → Stichwörter → Tools). „Homescreen ordnen“: Ordner pro Kategorie (ab 2 Apps), Aufräumen > 60 Tage ungenutzt (Archiv-Ordner oder entfernen), Vorschau und „Rückgängig“ über Room-Snapshots. Deterministisch: ein zweiter Durchlauf ändert nichts. Profile *Standard*, *Arbeit* (Spiele & Social ausgeblendet), *Auto* (große Icons, 2×3), *Fokus* mit eigenem Layout; automatischer Wechsel per Bluetooth-Gerät (aus der Phase-1-Automatik), WLAN oder Uhrzeit – Priorität Bluetooth > WLAN > Zeit, danach zurück zum Basisprofil |
 | 3.3 | Tracker-Blocker per lokalem `VpnService`: nur die virtuelle DNS-Adresse wird ins VPN geroutet, gesperrte Domains (inkl. Subdomains) bekommen sofort `NXDOMAIN`, der Rest geht unverändert an den DNS-Server des aktuellen Netzes. ~150 mitgelieferte Tracker-Domains, eigener Hosts-Import, eigene Sperr-/Erlaubtliste. Statistik pro App/Domain und Tag (aggregiert, 30 Tage), Rangliste unter Wächter → Security. Erkennt fremde VPNs und bleibt dann aus |
-| 3.4 | Fokus-Bremse (Overlay mit Countdown, „Abbrechen“ führt zum Startbildschirm, Ruhezeit nach „Trotzdem öffnen“), Lautstärke pro App (setzt beim Öffnen, stellt beim Verlassen wieder her). App-Erkennung bevorzugt über eine eigene, schlanke Bedienungshilfe (nur Fensterwechsel, keine Inhalte), sonst über UsageStats – dann nur bei eingeschaltetem Display. Hardware-Schnellcheck: Lautsprecher-Reiniger (165 Hz, 15 s, `AudioTrack`) und Display-Test (Rot/Grün/Blau/Weiß/Schwarz). APK-Backup von `base.apk` und Split-APKs nach `Documents/PixelManagerBackups` |
+| 3.4 | Fokus-Bremse (Overlay mit Countdown, „Abbrechen“ führt zum Startbildschirm, Ruhezeit nach „Trotzdem öffnen“), Lautstärke pro App (setzt beim Öffnen, stellt beim Verlassen wieder her). App-Erkennung über UsageStats, nur bei eingeschaltetem Display (bewusst ohne zweite Bedienungshilfe, siehe Play Protect). Hardware-Schnellcheck: Lautsprecher-Reiniger (165 Hz, 15 s, `AudioTrack`) und Display-Test (Rot/Grün/Blau/Weiß/Schwarz). APK-Backup von `base.apk` und Split-APKs nach `Documents/PixelManagerBackups` |
 
 ## Bauen
 
@@ -52,12 +52,35 @@ echo "sdk.dir=$HOME/Android/Sdk" > local.properties
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
+## Play Protect & Release-Signatur
+
+Umsetzung von [`docs/roadmap_play_protect_warnungen_vermeiden_alle_funktionen.md`](docs/roadmap_play_protect_warnungen_vermeiden_alle_funktionen.md), alle Funktionen bleiben erhalten:
+
+- **Eine einzige Bedienungshilfe**, strikt auf `com.android.settings` begrenzt (`packageNames` plus Prüfung im Code), nur
+  `typeWindowStateChanged|typeWindowContentChanged`, keine Texteingabe- oder Tasten-Ereignisse. Fokus-Bremse und Lautstärke pro App
+  erkennen App-Wechsel über UsageStats statt über eine zweite, app-übergreifende Bedienungshilfe.
+- Kein nachgeladener Code, keine Reflection, keine Verschleierung (R8 aus).
+- Manifest: `allowBackup="false"`, `usesCleartextTraffic="false"` (ntfy erzwingt ohnehin HTTPS), nur Rechte implementierter Funktionen.
+- `targetSdk` 37, eigene `applicationId` `app.mobilemanager`.
+
+**Eigenen Release-Schlüssel einrichten (einmalig):**
+
+1. Android Studio → *Build → Generate Signed App Bundle / APK → APK → Create new…* und den `.jks` **außerhalb** des Repos speichern
+   (oder per `keytool -genkeypair -v -keystore ../keys/mobilemanager-release.jks -alias mobilemanager -keyalg RSA -keysize 4096 -validity 10000`).
+2. `keystore.properties.example` nach `keystore.properties` kopieren und Pfad, Alias und Passwörter eintragen (die Datei ist per `.gitignore` ausgeschlossen).
+3. `./gradlew :app:assembleRelease` erzeugt `app/build/outputs/apk/release/app-release.apk`. Ohne `keystore.properties` entsteht nur `app-release-unsigned.apk`.
+4. Den Schlüssel nie wechseln – Play Protect bewertet Vertrauen pro Signatur. Keystore und Passwörter sicher sichern.
+
+**Wechsel auf dem Pixel (einmalig):** Debug-Version deinstallieren (vorher Geräteadministrator unter Wächter → Security deaktivieren), dann
+`adb install app-release.apk` mit ausgeschaltetem *Entwickleroptionen → Apps über USB überprüfen* – oder beim Antippen der APK im
+Play-Protect-Dialog „App scannen“ wählen. Bei anhaltendem Fehlalarm die APK über das Play-Protect-Einspruchsformular melden.
+
 ## Einrichtung auf dem Pixel
 
 1. App starten → Berechtigungs-Assistent durchgehen.
 2. [Shizuku](https://shizuku.rikka.app/) installieren und per „Kabelloses Debugging“ starten, dann in MobileManager die Shizuku-Berechtigung erteilen.
    Nach jedem Neustart muss Shizuku neu gestartet werden – MobileManager zeigt das an.
-3. Optional (ohne Shizuku): Bedienungshilfe aktivieren. Bei per APK installierten Apps vorher
+3. Optional (ohne Shizuku): Bedienungshilfe „MobileManager – Beenden erzwingen“ aktivieren (wirkt nur in den Android-Einstellungen). Bei per APK installierten Apps vorher
    *App-Info → ⋮ → Eingeschränkte Einstellungen zulassen*.
 4. Wächter → Security: Geräteadministrator aktivieren. **Vor dem Deinstallieren dort wieder deaktivieren**,
    sonst blockiert Android die Deinstallation.
@@ -67,7 +90,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
    geht es über Einstellungen → Apps → Standard-Apps → Startbildschirm-App oder einfach durch Ausschalten des Schalters.
 8. Tracker-Blocker einschalten und die einmalige VPN-Anfrage bestätigen. Optional unter Einstellungen → Netzwerk → VPN
    „Durchgehend aktives VPN“ für MobileManager aktivieren.
-9. Für Fokus-Bremse/Lautstärke pro App am besten die Bedienungshilfe „MobileManager – Fokus-Bremse & Lautstärke“ aktivieren.
+9. Für Fokus-Bremse/Lautstärke pro App wird der Nutzungszugriff aus Schritt 1 gebraucht.
 
 ## Bekannte Grenzen
 

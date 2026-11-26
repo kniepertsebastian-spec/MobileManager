@@ -14,3 +14,6 @@
 *.aab
 *.keystore
 *.jks
+
+# Release-Schlüssel: Zugangsdaten nur lokal
+keystore.properties
