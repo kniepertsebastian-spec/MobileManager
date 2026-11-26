@@ -16,10 +16,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -69,7 +71,12 @@ fun SwipeReviewScreen(
         viewModel.onDeleteResult(it.resultCode == Activity.RESULT_OK)
     }
     fun launchDelete() {
-        viewModel.buildDeleteRequest()?.let { deleteLauncher.launch(IntentSenderRequest.Builder(it).build()) }
+        val request = viewModel.buildDeleteRequest()
+        if (request != null) {
+            deleteLauncher.launch(IntentSenderRequest.Builder(request).build())
+        } else {
+            viewModel.deleteWithoutDialog()
+        }
     }
 
     LaunchedEffect(state.finished) { if (state.finished) onBack() }
@@ -77,7 +84,7 @@ fun SwipeReviewScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Fotos ohne Personen") },
+                title = { Text(if (state.isExpiredMode) "Alte Screenshots & Downloads" else "Fotos ohne Personen") },
                 navigationIcon = {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Zurück") }
                 },
@@ -109,10 +116,13 @@ fun SwipeReviewScreen(
                     Text("Lade …")
                 } else if (current == null) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Alle Fotos bewertet!", style = MaterialTheme.typography.headlineSmall)
+                        Text(
+                            if (state.isExpiredMode) "Alle Dateien bewertet!" else "Alle Fotos bewertet!",
+                            style = MaterialTheme.typography.headlineSmall,
+                        )
                         if (state.toDelete.isNotEmpty()) {
                             Text(
-                                "${state.toDelete.size} Fotos (${formatBytes(context, state.toDelete.sumOf { it.sizeBytes })}) " +
+                                "${state.toDelete.size} Dateien (${formatBytes(context, state.toDelete.sumOf { it.sizeBytes })}) " +
                                     "werden nach Bestätigung im Android-Dialog gelöscht.",
                                 modifier = Modifier.padding(16.dp),
                             )
@@ -120,9 +130,12 @@ fun SwipeReviewScreen(
                         }
                     }
                 } else {
-                    state.next?.let { PhotoCard(it, Modifier.graphicsLayer { scaleX = 0.95f; scaleY = 0.95f }) }
+                    state.next?.let {
+                        PhotoCard(it, viewModel.kindLabel(it), Modifier.graphicsLayer { scaleX = 0.95f; scaleY = 0.95f })
+                    }
                     SwipeableCard(
                         image = current,
+                        kindLabel = viewModel.kindLabel(current),
                         onSwipedLeft = viewModel::swipeLeft,
                         onSwipedRight = viewModel::swipeRight,
                     )
@@ -158,7 +171,7 @@ fun SwipeReviewScreen(
 }
 
 @Composable
-private fun SwipeableCard(image: MediaImage, onSwipedLeft: () -> Unit, onSwipedRight: () -> Unit) {
+private fun SwipeableCard(image: MediaImage, kindLabel: String?, onSwipedLeft: () -> Unit, onSwipedRight: () -> Unit) {
     val scope = rememberCoroutineScope()
     var screenWidthPx by remember { mutableFloatStateOf(1_000f) }
     val threshold = screenWidthPx * 0.3f
@@ -166,6 +179,7 @@ private fun SwipeableCard(image: MediaImage, onSwipedLeft: () -> Unit, onSwipedR
 
     PhotoCard(
         image = image,
+        kindLabel = kindLabel,
         overlayAlpha = (abs(offsetX.value) / threshold).coerceIn(0f, 1f),
         overlayDelete = offsetX.value < 0,
         modifier = Modifier
@@ -204,6 +218,7 @@ private fun SwipeableCard(image: MediaImage, onSwipedLeft: () -> Unit, onSwipedR
 @Composable
 private fun PhotoCard(
     image: MediaImage,
+    kindLabel: String?,
     modifier: Modifier = Modifier,
     overlayAlpha: Float = 0f,
     overlayDelete: Boolean = false,
@@ -211,12 +226,30 @@ private fun PhotoCard(
     val context = LocalContext.current
     Card(modifier.fillMaxSize()) {
         Box(Modifier.fillMaxSize()) {
-            AsyncImage(
-                model = image.uri,
-                contentDescription = image.displayName,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
+            if (image.isImage) {
+                AsyncImage(
+                    model = image.uri,
+                    contentDescription = image.displayName,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                // PDFs & Co.: Dateisymbol statt Vorschau
+                Column(
+                    Modifier.fillMaxSize().padding(24.dp),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Icon(
+                        Icons.Default.Description,
+                        contentDescription = null,
+                        modifier = Modifier.size(96.dp),
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                    Text(image.displayName, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 12.dp))
+                    image.mimeType?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                }
+            }
             if (overlayAlpha > 0f) {
                 val tint = if (overlayDelete) Color(0xFFC62828) else Color(0xFF2E7D32)
                 Box(Modifier.fillMaxSize().background(tint.copy(alpha = overlayAlpha * 0.5f)))
@@ -230,7 +263,7 @@ private fun PhotoCard(
             ) {
                 val date = DateFormat.getMediumDateFormat(context).format(Date(image.dateTaken))
                 Text(
-                    "$date · ${formatBytes(context, image.sizeBytes)}",
+                    listOfNotNull(kindLabel, date, formatBytes(context, image.sizeBytes)).joinToString(" · "),
                     color = Color.White,
                     style = MaterialTheme.typography.titleMedium,
                 )

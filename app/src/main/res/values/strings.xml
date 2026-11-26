@@ -3,4 +3,7 @@
     <string name="app_name">MobileManager</string>
     <string name="accessibility_service_label">MobileManager – Beenden erzwingen</string>
     <string name="accessibility_service_description">Fallback, falls Shizuku nicht läuft: Öffnet die App-Info einer inaktiven App und tippt automatisch auf „Beenden erzwingen“ und „OK“. Der Dienst reagiert ausschließlich auf vom Nutzer gestartete Aufräumvorgänge und liest keine anderen Inhalte.</string>
+    <string name="device_admin_label">MobileManager – Diebstahl-Erkennung</string>
+    <string name="device_admin_description">Erkennt falsche PIN-, Muster- oder Passwort-Eingaben auf dem Sperrbildschirm und löst einen Alarm aus. MobileManager nutzt keine weiteren Administrator-Rechte. Vor dem Deinstallieren in der App unter Wächter → Security deaktivieren.</string>
+    <string name="notification_listener_label">MobileManager – Archiv &amp; Digest</string>
 </resources>

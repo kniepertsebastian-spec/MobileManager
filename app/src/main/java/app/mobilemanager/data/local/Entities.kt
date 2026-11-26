@@ -1,6 +1,7 @@
 package app.mobilemanager.data.local
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
 /** Apps, die der Nutzer manuell vor dem App-Stopper geschützt hat. */
@@ -55,3 +56,57 @@ data class ImageAnalysisEntity(
         const val DECISION_KEEP = 1
     }
 }
+
+/* ---------- Phase 2 ---------- */
+
+/** Protokolliertes Sicherheitsereignis (Security-Log). */
+@Entity(tableName = "security_events", indices = [Index("timestamp")])
+data class SecurityEventEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    /** [app.mobilemanager.domain.model.SecurityEventType] als Name. */
+    val type: String,
+    val timestamp: Long,
+    val title: String,
+    val details: String,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    /** [app.mobilemanager.domain.model.AlertState] als Name. */
+    val alertState: String,
+    val seen: Boolean = false,
+)
+
+/**
+ * Archivierte Benachrichtigung (7 Tage). Der Unique-Index dedupliziert identische Updates
+ * derselben Benachrichtigung.
+ */
+@Entity(
+    tableName = "notification_entries",
+    indices = [
+        Index(value = ["packageName", "notificationKey", "title", "text"], unique = true),
+        Index("postedAt"),
+    ],
+)
+data class NotificationEntryEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val notificationKey: String,
+    val packageName: String,
+    val appLabel: String,
+    val title: String,
+    val text: String,
+    val postedAt: Long,
+    val digestState: Int = DIGEST_NONE,
+) {
+    companion object {
+        const val DIGEST_NONE = 0
+        /** Abgefangen, wartet auf die nächste Sammel-Benachrichtigung. */
+        const val DIGEST_PENDING = 1
+        const val DIGEST_DELIVERED = 2
+    }
+}
+
+/** Alte Screenshots/Downloads, die der Nutzer in der Swipe-Ansicht behalten hat. */
+@Entity(tableName = "kept_expired_files")
+data class KeptExpiredFileEntity(
+    @PrimaryKey val mediaId: Long,
+    val keptAt: Long,
+)

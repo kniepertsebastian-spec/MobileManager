@@ -48,7 +48,7 @@ class InstalledAppsRepository @Inject constructor(
     suspend fun loadApps(includeSystemApps: Boolean): List<InstalledApp> = withContext(Dispatchers.IO) {
         val whitelisted = whitelistDao.getPackageNames().toSet()
         val protected = protectedAppsProvider.resolve()
-        val lastUsed = queryLastUsed()
+        val lastUsed = lastUsedMap()
 
         launcherPackages().mapNotNull { pkg ->
             val info = runCatching {
@@ -92,7 +92,7 @@ class InstalledAppsRepository @Inject constructor(
      * Letzter Zeitpunkt, zu dem eine App im Vordergrund war. Ohne Nutzungszugriff liefert
      * der UsageStatsManager eine leere Map.
      */
-    private fun queryLastUsed(): Map<String, Long> {
+    fun lastUsedMap(): Map<String, Long> {
         val usm = context.getSystemService(UsageStatsManager::class.java) ?: return emptyMap()
         val end = System.currentTimeMillis()
         val begin = end - TimeUnit.DAYS.toMillis(USAGE_LOOKBACK_DAYS)

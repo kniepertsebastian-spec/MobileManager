@@ -97,7 +97,8 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewMo
                 trailingContent = { Switch(checked = settings.nightRoutineEnabled, onCheckedChange = viewModel::setNightRoutine) },
             ) { Text("Nacht-Routine") }
             Text(
-                "Alle Daten bleiben ausschließlich auf diesem Gerät. Keine Cloud, keine Telemetrie.",
+                "Alle Daten bleiben auf diesem Gerät. Keine Cloud, keine Telemetrie. Einzige Ausnahme: " +
+                    "Sicherheitsalarme an den Kanal, den du unter Wächter → Alarm-Versand selbst einrichtest.",
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(16.dp),
             )

@@ -68,3 +68,89 @@ interface ImageAnalysisDao {
     suspend fun deleteByIds(ids: List<Long>)
 
 }
+
+@Dao
+interface SecurityEventDao {
+    @Insert
+    suspend fun insert(event: SecurityEventEntity): Long
+
+    @Query("SELECT * FROM security_events ORDER BY timestamp DESC LIMIT 300")
+    fun observeRecent(): Flow<List<SecurityEventEntity>>
+
+    @Query("SELECT * FROM security_events WHERE id = :id")
+    suspend fun get(id: Long): SecurityEventEntity?
+
+    @Query("UPDATE security_events SET alertState = :state WHERE id = :id")
+    suspend fun setAlertState(id: Long, state: String)
+
+    @Query("UPDATE security_events SET latitude = :latitude, longitude = :longitude WHERE id = :id")
+    suspend fun setLocation(id: Long, latitude: Double, longitude: Double)
+
+    @Query("SELECT COUNT(*) FROM security_events WHERE seen = 0")
+    fun observeUnseenCount(): Flow<Int>
+
+    @Query("UPDATE security_events SET seen = 1 WHERE seen = 0")
+    suspend fun markAllSeen()
+
+    @Query("DELETE FROM security_events")
+    suspend fun clear()
+}
+
+data class NotificationAppCount(val packageName: String, val appLabel: String, val count: Int)
+
+@Dao
+interface NotificationEntryDao {
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insert(entry: NotificationEntryEntity): Long
+
+    /** Volltextsuche über App-Name, Titel und Text; [packageName] = null → alle Apps. */
+    @Query(
+        """
+        SELECT * FROM notification_entries
+        WHERE (:packageName IS NULL OR packageName = :packageName)
+          AND (:query = '' OR title LIKE '%' || :query || '%' OR text LIKE '%' || :query || '%'
+               OR appLabel LIKE '%' || :query || '%')
+        ORDER BY postedAt DESC
+        LIMIT 500
+        """,
+    )
+    fun search(query: String, packageName: String?): Flow<List<NotificationEntryEntity>>
+
+    @Query(
+        """
+        SELECT packageName, MAX(appLabel) AS appLabel, COUNT(*) AS count
+        FROM notification_entries GROUP BY packageName ORDER BY count DESC
+        """,
+    )
+    fun observeApps(): Flow<List<NotificationAppCount>>
+
+    @Query("SELECT * FROM notification_entries WHERE digestState = 1 ORDER BY postedAt")
+    suspend fun pendingDigest(): List<NotificationEntryEntity>
+
+    @Query("SELECT * FROM notification_entries WHERE digestState = 1 ORDER BY postedAt DESC")
+    fun observePendingDigest(): Flow<List<NotificationEntryEntity>>
+
+    @Query("UPDATE notification_entries SET digestState = 2 WHERE id IN (:ids)")
+    suspend fun markDelivered(ids: List<Long>)
+
+    @Query("DELETE FROM notification_entries WHERE postedAt < :cutoff")
+    suspend fun deleteOlderThan(cutoff: Long): Int
+
+    @Query("DELETE FROM notification_entries")
+    suspend fun clear()
+}
+
+@Dao
+interface KeptExpiredFileDao {
+    @Query("SELECT mediaId FROM kept_expired_files")
+    suspend fun getIds(): List<Long>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(entity: KeptExpiredFileEntity)
+
+    @Query("DELETE FROM kept_expired_files WHERE mediaId = :mediaId")
+    suspend fun delete(mediaId: Long)
+
+    @Query("DELETE FROM kept_expired_files WHERE mediaId IN (:ids)")
+    suspend fun deleteAll(ids: List<Long>)
+}

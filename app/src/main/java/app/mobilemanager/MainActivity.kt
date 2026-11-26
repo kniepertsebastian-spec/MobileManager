@@ -61,6 +61,10 @@ class MainActivity : ComponentActivity() {
             DESTINATION_APP_STOPPER -> Routes.APP_STOPPER
             DESTINATION_CLEANER -> Routes.cleaner()
             DESTINATION_PERMISSIONS -> Routes.PERMISSIONS
+            DESTINATION_SECURITY -> Routes.GUARD_SECURITY
+            DESTINATION_BATTERY -> Routes.GUARD_BATTERY
+            DESTINATION_NOTIFICATIONS -> Routes.GUARD_NOTIFICATIONS
+            DESTINATION_EXPIRED_REVIEW -> Routes.review(Routes.REVIEW_MODE_EXPIRED)
             else -> null
         }
         route?.let(viewModel::setPendingDestination)
@@ -71,5 +75,9 @@ class MainActivity : ComponentActivity() {
         const val DESTINATION_APP_STOPPER = "app_stopper"
         const val DESTINATION_CLEANER = "cleaner"
         const val DESTINATION_PERMISSIONS = "permissions"
+        const val DESTINATION_SECURITY = "security"
+        const val DESTINATION_BATTERY = "battery"
+        const val DESTINATION_NOTIFICATIONS = "notifications"
+        const val DESTINATION_EXPIRED_REVIEW = "expired_review"
     }
 }

@@ -113,6 +113,26 @@ fun PermissionsScreen(
                 launch = { runtimeLauncher.launch(it) },
                 openSettings = { startSafely(viewModel.settingsIntent(status.kind), null) },
             )
+            PermissionKind.LOCATION -> when (status.state) {
+                GrantState.DENIED -> requestRuntime(
+                    context as? Activity,
+                    arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    status,
+                    launch = { runtimeLauncher.launch(it) },
+                    openSettings = { startSafely(viewModel.settingsIntent(status.kind), null) },
+                )
+                // "Immer zulassen" muss separat angefragt werden; Android öffnet dafür die Standort-Seite.
+                GrantState.PARTIAL -> requestRuntime(
+                    context as? Activity,
+                    arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION),
+                    Manifest.permission.ACCESS_BACKGROUND_LOCATION,
+                    status.copy(state = GrantState.DENIED),
+                    launch = { runtimeLauncher.launch(it) },
+                    openSettings = { startSafely(viewModel.settingsIntent(status.kind), null) },
+                )
+                GrantState.GRANTED -> Unit
+            }
             PermissionKind.SHIZUKU -> when (viewModel.shizukuState.value) {
                 ShizukuState.NOT_INSTALLED -> startSafely(
                     Intent(Intent.ACTION_VIEW, ShizukuManager.SHIZUKU_DOWNLOAD_URL.toUri()),

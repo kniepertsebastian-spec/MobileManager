@@ -15,8 +15,8 @@ android {
         applicationId = "app.mobilemanager"
         minSdk = 33
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -33,6 +33,13 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    packaging {
+        resources {
+            // Jakarta Mail / Activation bringen identische Lizenzdateien mit
+            excludes += setOf("META-INF/NOTICE.md", "META-INF/LICENSE.md")
+        }
     }
 
     buildFeatures {
@@ -89,6 +96,11 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.coroutines.play.services)
     implementation(libs.coil.compose)
+
+    // Phase 2: Alarm-Versand & Standort
+    implementation(libs.okhttp)
+    implementation(libs.angus.mail)
+    implementation(libs.play.services.location)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

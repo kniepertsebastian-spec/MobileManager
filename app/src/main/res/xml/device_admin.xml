@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Nur Fehlversuche auf dem Sperrbildschirm beobachten – keine weiteren Admin-Rechte. -->
+<device-admin>
+    <uses-policies>
+        <watch-login />
+    </uses-policies>
+</device-admin>

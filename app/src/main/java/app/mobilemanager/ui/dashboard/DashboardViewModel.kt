@@ -2,7 +2,12 @@ package app.mobilemanager.ui.dashboard
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import app.mobilemanager.data.battery.BatteryMonitor
 import app.mobilemanager.data.bluetooth.BluetoothRepository
+import app.mobilemanager.data.guard.GuardSettingsRepository
+import app.mobilemanager.data.security.SecurityEventRepository
+import app.mobilemanager.domain.model.BatteryStatus
+import app.mobilemanager.domain.model.NightReport
 import app.mobilemanager.data.local.CleanupHistoryEntity
 import app.mobilemanager.data.media.StorageCleanerRepository
 import app.mobilemanager.data.media.StorageInfo
@@ -44,7 +49,17 @@ class DashboardViewModel @Inject constructor(
     private val storageRepository: StorageCleanerRepository,
     private val bluetooth: BluetoothRepository,
     private val permissions: PermissionChecker,
+    batteryMonitor: BatteryMonitor,
+    guardSettings: GuardSettingsRepository,
+    securityEvents: SecurityEventRepository,
 ) : ViewModel() {
+
+    val battery: StateFlow<BatteryStatus?> =
+        batteryMonitor.observe().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    val nightReport: StateFlow<NightReport?> =
+        guardSettings.nightReport.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    val unseenSecurityEvents: StateFlow<Int> =
+        securityEvents.unseenCount.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
     private val _state = MutableStateFlow(DashboardUiState())
     val state: StateFlow<DashboardUiState> = _state.asStateFlow()

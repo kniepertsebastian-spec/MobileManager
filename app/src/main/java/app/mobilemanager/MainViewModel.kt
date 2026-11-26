@@ -1,7 +1,10 @@
 package app.mobilemanager
 
+import android.app.Application
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import app.mobilemanager.data.guard.GuardService
+import app.mobilemanager.data.guard.GuardSettingsRepository
 import app.mobilemanager.data.settings.SettingsRepository
 import app.mobilemanager.data.work.WorkScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -17,7 +20,9 @@ import javax.inject.Inject
 
 @HiltViewModel
 class MainViewModel @Inject constructor(
+    private val application: Application,
     settings: SettingsRepository,
+    guardSettings: GuardSettingsRepository,
     workScheduler: WorkScheduler,
 ) : ViewModel() {
 
@@ -37,6 +42,13 @@ class MainViewModel @Inject constructor(
                 .map { it.copy(onboardingDone = false, inactiveThresholdHours = 0, showSystemApps = false, photoAgeMonths = 0) }
                 .distinctUntilChanged()
                 .collect { workScheduler.apply(it) }
+        }
+        // Phase 2: Wächter-Jobs und optionalen Echtzeit-Dienst synchron halten.
+        viewModelScope.launch {
+            guardSettings.settings.distinctUntilChanged().collect { s ->
+                workScheduler.applyGuard(s)
+                if (s.realtimeServiceEnabled) GuardService.start(application) else GuardService.stop(application)
+            }
         }
     }
 

@@ -73,7 +73,11 @@ data class MediaImage(
     val dateModified: Long,
     val bucket: String?,
     val relativePath: String?,
-)
+    /** Nur bei alten Downloads gesetzt; `null` = Bild. */
+    val mimeType: String? = null,
+) {
+    val isImage: Boolean get() = mimeType == null || mimeType.startsWith("image/")
+}
 
 /** Gruppe identischer Bilder; [keep] bleibt standardmäßig geschützt. */
 data class DuplicateGroup(
@@ -135,6 +139,11 @@ enum class PermissionKind {
     BATTERY_OPTIMIZATION,
     SHIZUKU,
     ACCESSIBILITY,
+    // Phase 2 (alle optional)
+    DEVICE_ADMIN,
+    NOTIFICATION_LISTENER,
+    LOCATION,
+    ALL_FILES,
 }
 
 enum class GrantState { GRANTED, PARTIAL, DENIED }

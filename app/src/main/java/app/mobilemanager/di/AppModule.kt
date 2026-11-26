@@ -6,6 +6,9 @@ import app.mobilemanager.data.local.AppDatabase
 import app.mobilemanager.data.local.BluetoothRuleDao
 import app.mobilemanager.data.local.CleanupHistoryDao
 import app.mobilemanager.data.local.ImageAnalysisDao
+import app.mobilemanager.data.local.KeptExpiredFileDao
+import app.mobilemanager.data.local.NotificationEntryDao
+import app.mobilemanager.data.local.SecurityEventDao
 import app.mobilemanager.data.local.WhitelistDao
 import dagger.Module
 import dagger.Provides
@@ -34,4 +37,13 @@ object DatabaseModule {
 
     @Provides
     fun provideImageAnalysisDao(db: AppDatabase): ImageAnalysisDao = db.imageAnalysisDao()
+
+    @Provides
+    fun provideSecurityEventDao(db: AppDatabase): SecurityEventDao = db.securityEventDao()
+
+    @Provides
+    fun provideNotificationEntryDao(db: AppDatabase): NotificationEntryDao = db.notificationEntryDao()
+
+    @Provides
+    fun provideKeptExpiredFileDao(db: AppDatabase): KeptExpiredFileDao = db.keptExpiredFileDao()
 }

@@ -14,6 +14,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.SdStorage
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.StopCircle
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
@@ -44,12 +45,16 @@ fun DashboardScreen(
     onStartScan: () -> Unit,
     onOpenAutomation: () -> Unit,
     onOpenPermissions: () -> Unit,
+    onOpenGuard: () -> Unit,
     viewModel: DashboardViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
     val state by viewModel.state.collectAsStateWithLifecycle()
     val lastCleanup by viewModel.lastCleanup.collectAsStateWithLifecycle()
     val bt by viewModel.bluetoothSummary.collectAsStateWithLifecycle()
+    val battery by viewModel.battery.collectAsStateWithLifecycle()
+    val nightReport by viewModel.nightReport.collectAsStateWithLifecycle()
+    val unseenEvents by viewModel.unseenSecurityEvents.collectAsStateWithLifecycle()
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh() }
 
     Column(
@@ -142,6 +147,25 @@ fun DashboardScreen(
                 if (bt.connectedNames.isEmpty()) "Kein Gerät verbunden" else "Verbunden: ${bt.connectedNames.joinToString()}",
             )
             OutlinedButton(onClick = onOpenAutomation, modifier = Modifier.padding(top = 8.dp)) { Text("Regeln verwalten") }
+        }
+
+        // 4. Wächter (Phase 2)
+        StatusCard(icon = Icons.Default.Shield, title = "Wächter") {
+            Text(
+                battery?.let { "Akku ${it.levelPercent} % · ${"%.1f".format(it.temperatureCelsius)} °C" } ?: "Akku wird gelesen …",
+                style = MaterialTheme.typography.headlineSmall,
+            )
+            Text(
+                nightReport?.let { "Nacht-Standby: −${it.dropPercent} % in ${"%.1f".format(it.hours)} h" }
+                    ?: "Noch kein Nacht-Standby-Bericht",
+            )
+            if (unseenEvents > 0) {
+                Text(
+                    if (unseenEvents == 1) "1 neues Sicherheitsereignis" else "$unseenEvents neue Sicherheitsereignisse",
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            OutlinedButton(onClick = onOpenGuard, modifier = Modifier.padding(top = 8.dp)) { Text("Wächter öffnen") }
         }
     }
 }
