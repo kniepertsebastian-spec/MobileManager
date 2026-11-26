@@ -48,9 +48,13 @@ class LauncherLayoutRepository @Inject constructor(
 
     // ---------------------------------------------------------------- Ersteinrichtung
 
-    /** Legt beim ersten Start die vier Standardprofile an und befüllt sie mit den installierten Apps. */
+    /**
+     * Legt beim ersten Start die vier Standardprofile an und befüllt sie mit den installierten Apps.
+     * Profile, die vorher schon in den Einstellungen angelegt wurden, sind noch leer – sie bekommen das Standard-Layout.
+     */
     suspend fun ensureInitialized(apps: List<LauncherApp>, pageSize: Int) = initMutex.withLock {
         if (prefs.current().initialized || apps.isEmpty()) return@withLock
+        val earlier = dao.profiles()
         val mainApps = apps.filterNot { it.isWorkProfile }
         val defaults = defaultPackages()
         val dockApps = defaults.mapNotNull { pkg -> mainApps.firstOrNull { it.packageName == pkg } }.distinct().take(DOCK_SIZE)
@@ -91,7 +95,14 @@ class LauncherLayoutRepository @Inject constructor(
                     daysMask = ProfileRule.WEEKDAYS, startMinutes = 8 * 60, endMinutes = 17 * 60, enabled = false,
                 ),
             )
-            prefs.update { it.copy(baseProfileId = standard, initialized = true) }
+            earlier.forEachIndexed { index, profile ->
+                if (dao.items(profile.id).isEmpty()) copyLayout(standard, profile.id)
+                dao.upsertProfile(profile.copy(sortOrder = DEFAULT_PROFILE_COUNT + index))
+            }
+            prefs.update { current ->
+                val base = current.baseProfileId.takeIf { id -> earlier.any { it.id == id } } ?: standard
+                current.copy(baseProfileId = base, initialized = true)
+            }
         }
     }
 
@@ -352,5 +363,6 @@ class LauncherLayoutRepository @Inject constructor(
         const val CAR_ROWS = 3
         const val CAR_GRID = CAR_COLUMNS * CAR_ROWS
         private const val MAX_SNAPSHOTS = 5
+        private const val DEFAULT_PROFILE_COUNT = 4
     }
 }

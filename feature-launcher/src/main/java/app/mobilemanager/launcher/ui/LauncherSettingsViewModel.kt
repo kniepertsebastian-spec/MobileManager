@@ -13,12 +13,14 @@ import app.mobilemanager.launcher.data.LauncherSettings
 import app.mobilemanager.launcher.data.SnapshotInfo
 import app.mobilemanager.launcher.domain.AppMeta
 import app.mobilemanager.launcher.domain.LauncherProfile
+import app.mobilemanager.launcher.domain.ProfileKind
 import app.mobilemanager.launcher.domain.ProfileRule
 import app.mobilemanager.launcher.domain.TidyOptions
 import app.mobilemanager.launcher.domain.TidyPlan
 import app.mobilemanager.launcher.domain.TidyPlanner
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -88,6 +90,15 @@ class LauncherSettingsViewModel @Inject constructor(
         if (id == null) flowOf(null) else layout.latestSnapshot(id)
     }.state(null)
 
+    /**
+     * Die Standardprofile entstehen sonst erst beim ersten Öffnen des Startbildschirms. Wer vorher hier Profile anlegt
+     * oder ordnet, bekäme leere Layouts – deshalb auch hier einrichten.
+     */
+    private val ready = viewModelScope.async {
+        val apps = appsRepository.apps.filterNotNull().first()
+        runCatching { layout.ensureInitialized(apps, prefs.current().pageSize) }
+    }
+
     init {
         appsRepository.start()
         refreshStatus()
@@ -95,6 +106,7 @@ class LauncherSettingsViewModel @Inject constructor(
             lastUsed.value = withContext(Dispatchers.IO) { runCatching { bridge.lastUsedByPackage() }.getOrDefault(emptyMap()) }
         }
         viewModelScope.launch {
+            ready.await()
             // Standard: das gerade aktive Profil ordnen.
             if (_tidyProfileId.value == null) {
                 _tidyProfileId.value = contextRepository.activeProfile.first().profileId.takeIf { it != 0L }
@@ -138,7 +150,12 @@ class LauncherSettingsViewModel @Inject constructor(
 
     // ------------------------------------------------------------- Profile & Regeln
     fun createProfile(name: String, copyFrom: Long?) {
-        viewModelScope.launch { layout.createProfile(name, copyFrom) }
+        viewModelScope.launch {
+            ready.await()
+            // Nach der Einrichtung gibt es immer ein Standardprofil als Vorlage.
+            val source = copyFrom ?: layout.profiles.first().firstOrNull { it.kind == ProfileKind.STANDARD }?.id
+            layout.createProfile(name, source)
+        }
     }
 
     fun updateProfile(profile: LauncherProfile) {

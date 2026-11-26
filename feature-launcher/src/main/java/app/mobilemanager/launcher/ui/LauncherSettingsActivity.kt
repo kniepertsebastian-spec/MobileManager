@@ -99,8 +99,8 @@ class LauncherSettingsActivity : ComponentActivity() {
                 val back: () -> Unit = { if (screen == SCREEN_OVERVIEW || screen == start) finish() else screen = SCREEN_OVERVIEW }
                 BackHandler(onBack = back)
                 when (screen) {
-                    SCREEN_TIDY -> TidyScreen(viewModel, onBack = back)
-                    SCREEN_PROFILES -> ProfilesScreen(viewModel, onBack = back)
+                    SCREEN_TIDY -> TidyScreen(viewModel, onBack = back, onStartIntent = ::startSafely)
+                    SCREEN_PROFILES -> ProfilesScreen(viewModel, onBack = back, onStartIntent = ::startSafely)
                     else -> OverviewScreen(
                         viewModel = viewModel,
                         onBack = back,
@@ -267,10 +267,37 @@ private fun NavCard(icon: androidx.compose.ui.graphics.vector.ImageVector, title
     }
 }
 
+/** Hinweis mit Knopf, solange MobileManager nicht der Startbildschirm ist – sonst sieht man von Ordnen und Profilen nichts. */
+@Composable
+private fun LauncherStatusHint(viewModel: LauncherSettingsViewModel, onStartIntent: (Intent) -> Unit) {
+    val status by viewModel.status.collectAsStateWithLifecycle()
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refreshStatus() }
+    if (status.isDefault) return
+    val context = androidx.compose.ui.platform.LocalContext.current
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Text("MobileManager ist nicht dein Startbildschirm", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "Änderungen hier wirken sich erst sichtbar aus, wenn du den MobileManager-Launcher als Standard festlegst.",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(vertical = 8.dp),
+            )
+            if (status.enabled) {
+                Button(onClick = { onStartIntent(LauncherComponents.requestDefaultHomeIntent(context)) }) {
+                    Text("Als Startbildschirm festlegen")
+                }
+            }
+        }
+    }
+}
+
 // ------------------------------------------------------------------------------------- Ordnen
 
 @Composable
-private fun TidyScreen(viewModel: LauncherSettingsViewModel, onBack: () -> Unit) {
+private fun TidyScreen(viewModel: LauncherSettingsViewModel, onBack: () -> Unit, onStartIntent: (Intent) -> Unit) {
     val profiles by viewModel.profiles.collectAsStateWithLifecycle()
     val profileId by viewModel.tidyProfileId.collectAsStateWithLifecycle()
     val options by viewModel.options.collectAsStateWithLifecycle()
@@ -284,8 +311,15 @@ private fun TidyScreen(viewModel: LauncherSettingsViewModel, onBack: () -> Unit)
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            Text(
+                "Ordnen sortiert den Startbildschirm des MobileManager-Launchers: Apps einer Kategorie landen gemeinsam in " +
+                    "einem Ordner, lange nicht genutzte Apps auf Wunsch im Archiv. Jedes Profil hat seinen eigenen Startbildschirm – " +
+                    "wähle unten, welchen du ordnen willst. Den Pixel Launcher kann keine App von außen umsortieren.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            LauncherStatusHint(viewModel, onStartIntent)
             SectionCard {
-                Text("Profil", style = MaterialTheme.typography.titleSmall)
+                Text("Welches Profil ordnen?", style = MaterialTheme.typography.titleSmall)
                 Chips(profiles.map { it.id to it.name }, selected = { it == profileId }, onClick = viewModel::selectTidyProfile)
             }
             SectionCard {
@@ -319,6 +353,10 @@ private fun TidyScreen(viewModel: LauncherSettingsViewModel, onBack: () -> Unit)
                 val p = plan
                 when {
                     p == null -> Text("Wird berechnet …")
+                    p.homeAppCount == 0 -> Text(
+                        "Auf dem Startbildschirm dieses Profils liegen keine Apps – es gibt nichts zu ordnen. Im App-Drawer (vom " +
+                            "Startbildschirm nach oben wischen) eine App lange drücken → „Zum Startbildschirm“.",
+                    )
                     !p.changesAnything -> Text("Der Startbildschirm ist bereits aufgeräumt – es würde sich nichts ändern.")
                     else -> {
                         Text("• ${p.foldersCreated} neue Ordner")
@@ -386,7 +424,7 @@ private fun describeRule(rule: ProfileRule): String = when (rule.type) {
 }
 
 @Composable
-private fun ProfilesScreen(viewModel: LauncherSettingsViewModel, onBack: () -> Unit) {
+private fun ProfilesScreen(viewModel: LauncherSettingsViewModel, onBack: () -> Unit, onStartIntent: (Intent) -> Unit) {
     val profiles by viewModel.profiles.collectAsStateWithLifecycle()
     val rules by viewModel.rules.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
@@ -399,11 +437,20 @@ private fun ProfilesScreen(viewModel: LauncherSettingsViewModel, onBack: () -> U
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(
-                "Jedes Profil hat ein eigenes Layout. Regeln schalten automatisch um (Bluetooth vor WLAN vor Uhrzeit); " +
-                    "endet der Auslöser, kehrt der Startbildschirm zum gewählten Basisprofil zurück.",
-                style = MaterialTheme.typography.bodySmall,
-            )
+            SectionCard {
+                Text("So funktionieren Profile", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "• Jedes Profil ist ein eigener Startbildschirm mit eigenen Apps und Ordnern. Zu sehen sind sie nur, " +
+                        "wenn MobileManager dein Startbildschirm ist.\n" +
+                        "• Wechseln: Kreis links neben dem Profil antippen – oder auf dem Startbildschirm lange auf eine freie " +
+                        "Stelle drücken (bzw. oben auf den Profilnamen tippen) und unter „Profil“ eins auswählen.\n" +
+                        "• Automatisch: Regeln schalten vorübergehend um (Bluetooth vor WLAN vor Uhrzeit). Endet der Auslöser, " +
+                        "kommt das ausgewählte Profil zurück.",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+            LauncherStatusHint(viewModel, onStartIntent)
             profiles.forEach { profile ->
                 ProfileCard(
                     profile = profile,
@@ -474,8 +521,8 @@ private fun ProfileCard(
             Column(Modifier.weight(1f).clickable { renaming = true }) {
                 Text(profile.name, style = MaterialTheme.typography.titleMedium)
                 Text(
-                    listOfNotNull(if (isBase) "Basisprofil" else null, if (isActive) "gerade aktiv" else null).joinToString(" · ")
-                        .ifBlank { "Tippen zum Umbenennen" },
+                    listOfNotNull(if (isBase) "Ausgewählt" else null, if (isActive) "gerade auf dem Startbildschirm" else null).joinToString(" · ")
+                        .ifBlank { "Kreis antippen zum Auswählen · Name antippen zum Umbenennen" },
                     style = MaterialTheme.typography.bodySmall,
                 )
             }

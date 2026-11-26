@@ -4,11 +4,13 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
+import android.net.DnsResolver
 import android.net.LinkProperties
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.VpnService
 import android.os.Build
+import android.os.CancellationSignal
 import android.os.ParcelFileDescriptor
 import android.os.Process
 import android.system.ErrnoException
@@ -36,6 +38,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
@@ -45,9 +49,11 @@ import java.net.Inet4Address
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.coroutines.resume
 
 /** Laufzeitstatus des Tracker-Blockers (nur im App-Prozess, nicht persistent). */
 object TrackerVpnState {
@@ -226,27 +232,43 @@ class TrackerVpnService : VpnService() {
         }
     }
 
-    private fun forward(packet: UdpPacket, output: FileOutputStream) {
-        val servers = upstream.servers
+    /**
+     * Weiterleitung an das echte Netz. Zuerst über den System-Resolver auf dem Standardnetz: Der kennt die
+     * funktionierenden Server, IPv6-only-Mobilfunk mit DNS64/464XLAT, Wiederholungen, TCP-Fallback und „Privates DNS“.
+     * Nur wenn das scheitert, werden die DNS-Server des Netzes direkt per UDP gefragt.
+     */
+    private suspend fun forward(packet: UdpPacket, output: FileOutputStream) {
+        val answer = withTimeoutOrNull(SYSTEM_RESOLVER_TIMEOUT_MS) { upstream.systemQuery(packet.payload) }
+            ?: socketQuery(packet.payload)
+        if (answer != null && answer.size in DNS_HEADER_SIZE..MAX_UDP_PAYLOAD) {
+            // Antworten aus dem System-Cache können eine fremde Transaktions-ID tragen.
+            answer[0] = packet.payload[0]
+            answer[1] = packet.payload[1]
+            reply(packet, answer, output)
+        } else {
+            DnsMessages.errorResponse(packet.payload, DnsMessages.RCODE_SERVFAIL)?.let { reply(packet, it, output) }
+        }
+    }
+
+    private fun socketQuery(query: ByteArray): ByteArray? {
         val network = upstream.network
-        for (server in servers) {
+        for (server in upstream.servers) {
             try {
                 DatagramSocket().use { socket ->
                     protect(socket)
                     network?.let { runCatching { it.bindSocket(socket) } }
                     socket.soTimeout = UPSTREAM_TIMEOUT_MS
-                    socket.send(DatagramPacket(packet.payload, packet.payload.size, InetSocketAddress(server, DNS_PORT)))
+                    socket.send(DatagramPacket(query, query.size, InetSocketAddress(server, DNS_PORT)))
                     val buffer = ByteArray(MAX_DNS_RESPONSE)
                     val response = DatagramPacket(buffer, buffer.size)
                     socket.receive(response)
-                    reply(packet, buffer.copyOf(response.length), output)
+                    return buffer.copyOf(response.length)
                 }
-                return
             } catch (_: IOException) {
                 // nächsten Server versuchen
             }
         }
-        DnsMessages.errorResponse(packet.payload, DnsMessages.RCODE_SERVFAIL)?.let { reply(packet, it, output) }
+        return null
     }
 
     private fun reply(request: UdpPacket, dns: ByteArray, output: FileOutputStream) {
@@ -325,7 +347,10 @@ class TrackerVpnService : VpnService() {
         private const val MAX_PACKET = 32_767
         private const val MAX_DNS_RESPONSE = 4_096
         private const val POLL_TIMEOUT_MS = 1_000
-        private const val UPSTREAM_TIMEOUT_MS = 4_000
+        private const val UPSTREAM_TIMEOUT_MS = 2_000
+        private const val SYSTEM_RESOLVER_TIMEOUT_MS = 6_000L
+        private const val DNS_HEADER_SIZE = 12
+        private const val MAX_UDP_PAYLOAD = 65_000
         private const val FLUSH_INTERVAL_MS = 30_000L
 
         @OptIn(ExperimentalCoroutinesApi::class)
@@ -356,8 +381,28 @@ private class UpstreamDns(private val cm: ConnectivityManager) {
 
     private fun update(network: Network, lp: LinkProperties) {
         this.network = network
-        // IPv4 zuerst – IPv6-Server sind ohne IPv6-Route manchmal nicht erreichbar.
-        servers = lp.dnsServers.filterNot(TrackerVpnService::isVpnDns).sortedBy { if (it is Inet4Address) 0 else 1 }
+        // Ohne IPv4-Route (IPv6-only-Mobilfunk) wären IPv4-Server nur Zeitverschwendung – dann IPv6 zuerst.
+        val hasIpv4Route = lp.routes.any { it.isDefaultRoute && it.destination.address is Inet4Address }
+        servers = lp.dnsServers.filterNot(TrackerVpnService::isVpnDns)
+            .sortedBy { if ((it is Inet4Address) == hasIpv4Route) 0 else 1 }
+    }
+
+    /** Rohe DNS-Anfrage über den System-Resolver des Standardnetzes; `null` bei Fehler. */
+    suspend fun systemQuery(query: ByteArray): ByteArray? = suspendCancellableCoroutine { cont ->
+        val cancel = CancellationSignal()
+        cont.invokeOnCancellation { cancel.cancel() }
+        val callback = object : DnsResolver.Callback<ByteArray> {
+            override fun onAnswer(answer: ByteArray, rcode: Int) {
+                if (cont.isActive) cont.resume(answer)
+            }
+
+            override fun onError(error: DnsResolver.DnsException) {
+                if (cont.isActive) cont.resume(null)
+            }
+        }
+        runCatching {
+            DnsResolver.getInstance().rawQuery(network, query, DnsResolver.FLAG_EMPTY, DIRECT, cancel, callback)
+        }.onFailure { if (cont.isActive) cont.resume(null) }
     }
 
     fun start() {
@@ -370,6 +415,10 @@ private class UpstreamDns(private val cm: ConnectivityManager) {
         if (!registered) return
         runCatching { cm.unregisterNetworkCallback(callback) }
         registered = false
+    }
+
+    private companion object {
+        val DIRECT = Executor { it.run() }
     }
 }
 

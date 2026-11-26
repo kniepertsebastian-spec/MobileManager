@@ -37,6 +37,8 @@ data class TidyPlan(
     val appsArchived: Int,
     val appsRemoved: Int,
     val usageDataMissing: Boolean,
+    /** Wie viele Apps liegen aktuell auf dem Startbildschirm (lose oder in Ordnern)? */
+    val homeAppCount: Int,
     /** Unterscheidet sich das Ergebnis überhaupt vom aktuellen Homescreen? */
     val changesAnything: Boolean,
 ) {
@@ -142,6 +144,7 @@ object TidyPlanner {
             appsArchived = if (options.archiveMode == ArchiveMode.FOLDER) archived.count { previousFolderOf[it] != ARCHIVE_TITLE } else 0,
             appsRemoved = if (options.archiveMode == ArchiveMode.REMOVE) archived.size else 0,
             usageDataMissing = usageDataMissing,
+            homeAppCount = homeApps.size,
             changesAnything = current != sequence || !compacted,
         )
     }
