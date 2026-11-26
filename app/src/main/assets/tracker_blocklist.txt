@@ -1,0 +1,174 @@
+# MobileManager – kompakte lokale Tracker-Blockliste (Hosts-Format)
+# Jeder Eintrag sperrt auch alle Subdomains. Eigene Einträge und Ausnahmen unter Extras → Tracker-Blocker.
+# Bewusst nicht enthalten: Login-/Zahlungsdienste und Deep-Link-Anbieter, deren Sperre Apps kaputt macht.
+
+# Google Werbung & Analyse
+0.0.0.0 doubleclick.net
+0.0.0.0 googleadservices.com
+0.0.0.0 googlesyndication.com
+0.0.0.0 google-analytics.com
+0.0.0.0 ssl.google-analytics.com
+0.0.0.0 googletagmanager.com
+0.0.0.0 googletagservices.com
+0.0.0.0 adservice.google.com
+0.0.0.0 adservice.google.de
+0.0.0.0 app-measurement.com
+0.0.0.0 admob.com
+0.0.0.0 2mdn.net
+0.0.0.0 imasdk.googleapis.com
+
+# Meta / Facebook (nur Werbung & Pixel, nicht Login)
+0.0.0.0 an.facebook.com
+0.0.0.0 pixel.facebook.com
+0.0.0.0 analytics.facebook.com
+
+# Microsoft, Yandex, X, TikTok, Snap, Pinterest, LinkedIn
+0.0.0.0 bat.bing.com
+0.0.0.0 clarity.ms
+0.0.0.0 mc.yandex.ru
+0.0.0.0 ads-api.twitter.com
+0.0.0.0 analytics.twitter.com
+0.0.0.0 static.ads-twitter.com
+0.0.0.0 ads-twitter.com
+0.0.0.0 analytics.tiktok.com
+0.0.0.0 ads.tiktok.com
+0.0.0.0 ads-api.tiktok.com
+0.0.0.0 analytics-sg.tiktok.com
+0.0.0.0 tr.snapchat.com
+0.0.0.0 ads.pinterest.com
+0.0.0.0 ct.pinterest.com
+0.0.0.0 ads.linkedin.com
+0.0.0.0 px.ads.linkedin.com
+
+# Amazon & große Werbebörsen
+0.0.0.0 amazon-adsystem.com
+0.0.0.0 adsrvr.org
+0.0.0.0 adnxs.com
+0.0.0.0 criteo.com
+0.0.0.0 criteo.net
+0.0.0.0 taboola.com
+0.0.0.0 outbrain.com
+0.0.0.0 rubiconproject.com
+0.0.0.0 pubmatic.com
+0.0.0.0 openx.net
+0.0.0.0 casalemedia.com
+0.0.0.0 indexww.com
+0.0.0.0 smartadserver.com
+0.0.0.0 adform.net
+0.0.0.0 adform.com
+0.0.0.0 bidswitch.net
+0.0.0.0 contextweb.com
+0.0.0.0 sharethrough.com
+0.0.0.0 teads.tv
+0.0.0.0 33across.com
+0.0.0.0 lijit.com
+0.0.0.0 sovrn.com
+0.0.0.0 gumgum.com
+0.0.0.0 media.net
+0.0.0.0 revcontent.com
+0.0.0.0 mgid.com
+0.0.0.0 zemanta.com
+0.0.0.0 yieldmo.com
+0.0.0.0 advertising.com
+0.0.0.0 adtechus.com
+0.0.0.0 smaato.net
+0.0.0.0 mathtag.com
+0.0.0.0 adsafeprotected.com
+0.0.0.0 doubleverify.com
+0.0.0.0 moatads.com
+0.0.0.0 serving-sys.com
+0.0.0.0 flashtalking.com
+0.0.0.0 everesttech.net
+
+# Mobile-Werbe-SDKs
+0.0.0.0 applovin.com
+0.0.0.0 applvn.com
+0.0.0.0 unityads.unity3d.com
+0.0.0.0 ironsrc.com
+0.0.0.0 ironsrc.mobi
+0.0.0.0 supersonicads.com
+0.0.0.0 vungle.com
+0.0.0.0 chartboost.com
+0.0.0.0 startappservice.com
+0.0.0.0 tapjoy.com
+0.0.0.0 tapjoyads.com
+0.0.0.0 mopub.com
+0.0.0.0 inmobi.com
+0.0.0.0 adcolony.com
+0.0.0.0 fyber.com
+0.0.0.0 mintegral.com
+0.0.0.0 rayjump.com
+0.0.0.0 pangle.io
+0.0.0.0 pangleglobal.com
+0.0.0.0 samsungads.com
+0.0.0.0 ad.xiaomi.com
+0.0.0.0 tracking.miui.com
+
+# Attribution & App-Analyse
+0.0.0.0 appsflyer.com
+0.0.0.0 appsflyersdk.com
+0.0.0.0 adjust.com
+0.0.0.0 adjust.io
+0.0.0.0 kochava.com
+0.0.0.0 singular.net
+0.0.0.0 flurry.com
+0.0.0.0 mixpanel.com
+0.0.0.0 amplitude.com
+0.0.0.0 api.segment.io
+0.0.0.0 cdn.segment.com
+0.0.0.0 hotjar.com
+0.0.0.0 hotjar.io
+0.0.0.0 fullstory.com
+0.0.0.0 mouseflow.com
+0.0.0.0 crazyegg.com
+0.0.0.0 heap.io
+0.0.0.0 heapanalytics.com
+0.0.0.0 statcounter.com
+0.0.0.0 quantserve.com
+0.0.0.0 quantcount.com
+0.0.0.0 scorecardresearch.com
+0.0.0.0 comscore.com
+0.0.0.0 imrworldwide.com
+0.0.0.0 chartbeat.com
+0.0.0.0 chartbeat.net
+0.0.0.0 omtrdc.net
+0.0.0.0 demdex.net
+0.0.0.0 2o7.net
+0.0.0.0 krxd.net
+0.0.0.0 bluekai.com
+0.0.0.0 exelator.com
+0.0.0.0 rlcdn.com
+0.0.0.0 agkn.com
+0.0.0.0 tapad.com
+0.0.0.0 crwdcntrl.net
+0.0.0.0 adsymptotic.com
+0.0.0.0 nr-data.net
+0.0.0.0 branch-cdn.io
+0.0.0.0 cxense.com
+0.0.0.0 xiti.com
+0.0.0.0 ati-host.net
+0.0.0.0 mookie1.com
+
+# Deutschsprachiger Raum
+0.0.0.0 ioam.de
+0.0.0.0 emetriq.de
+0.0.0.0 theadex.com
+0.0.0.0 yieldlab.net
+0.0.0.0 adition.com
+0.0.0.0 nuggad.net
+0.0.0.0 sensic.net
+0.0.0.0 meetrics.net
+0.0.0.0 adscale.de
+0.0.0.0 webtrekk.net
+0.0.0.0 wt-eu02.net
+0.0.0.0 wt-safetag.com
+0.0.0.0 etracker.de
+0.0.0.0 etracker.com
+0.0.0.0 econda-monitor.de
+0.0.0.0 mapp.com
+0.0.0.0 intelliad.de
+0.0.0.0 plista.com
+0.0.0.0 ligatus.com
+0.0.0.0 adalliance.io
+0.0.0.0 stroeerdigitalmedia.de
+0.0.0.0 stroeerdigitalgroup.de

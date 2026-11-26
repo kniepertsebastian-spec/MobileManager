@@ -154,3 +154,60 @@ interface KeptExpiredFileDao {
     @Query("DELETE FROM kept_expired_files WHERE mediaId IN (:ids)")
     suspend fun deleteAll(ids: List<Long>)
 }
+
+/** Ergebnis einer Ranglisten-Abfrage (Paketname oder Domain → Anzahl). */
+data class TrackerCount(val name: String, val blocked: Int)
+
+@Dao
+interface TrackerStatsDao {
+    @Query(
+        "INSERT INTO tracker_app_stats(day, packageName, blocked) VALUES(:day, :packageName, :count) " +
+            "ON CONFLICT(day, packageName) DO UPDATE SET blocked = blocked + :count",
+    )
+    suspend fun addApp(day: Int, packageName: String, count: Int)
+
+    @Query(
+        "INSERT INTO tracker_domain_stats(day, domain, blocked) VALUES(:day, :domain, :count) " +
+            "ON CONFLICT(day, domain) DO UPDATE SET blocked = blocked + :count",
+    )
+    suspend fun addDomain(day: Int, domain: String, count: Int)
+
+    @Query(
+        "SELECT packageName AS name, SUM(blocked) AS blocked FROM tracker_app_stats WHERE day >= :fromDay " +
+            "GROUP BY packageName ORDER BY blocked DESC LIMIT :limit",
+    )
+    fun topApps(fromDay: Int, limit: Int): Flow<List<TrackerCount>>
+
+    @Query(
+        "SELECT domain AS name, SUM(blocked) AS blocked FROM tracker_domain_stats WHERE day >= :fromDay " +
+            "GROUP BY domain ORDER BY blocked DESC LIMIT :limit",
+    )
+    fun topDomains(fromDay: Int, limit: Int): Flow<List<TrackerCount>>
+
+    @Query("SELECT COALESCE(SUM(blocked), 0) FROM tracker_app_stats WHERE day >= :fromDay")
+    fun totalSince(fromDay: Int): Flow<Int>
+
+    @Query("DELETE FROM tracker_app_stats WHERE day < :cutoffDay")
+    suspend fun deleteAppsBefore(cutoffDay: Int)
+
+    @Query("DELETE FROM tracker_domain_stats WHERE day < :cutoffDay")
+    suspend fun deleteDomainsBefore(cutoffDay: Int)
+
+    @Query("DELETE FROM tracker_app_stats")
+    suspend fun clearApps()
+
+    @Query("DELETE FROM tracker_domain_stats")
+    suspend fun clearDomains()
+}
+
+@Dao
+interface AppVolumeRuleDao {
+    @Query("SELECT * FROM app_volume_rules ORDER BY packageName")
+    fun observeAll(): Flow<List<AppVolumeRuleEntity>>
+
+    @Upsert
+    suspend fun upsert(rule: AppVolumeRuleEntity)
+
+    @Query("DELETE FROM app_volume_rules WHERE packageName = :packageName")
+    suspend fun delete(packageName: String)
+}

@@ -22,3 +22,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "MobileManager"
 include(":app")
+include(":feature-launcher")

@@ -156,6 +156,47 @@
             </intent-filter>
         </service>
 
+        <!-- Phase 3.3: lokaler Tracker-Blocker (VPN nur für DNS, kein fremder Server) -->
+        <service
+            android:name=".data.tracker.TrackerVpnService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse"
+            android:permission="android.permission.BIND_VPN_SERVICE">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.net.VpnService.SUPPORTS_ALWAYS_ON"
+                android:value="true" />
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Vom Nutzer aktivierter lokaler DNS-Tracker-Blocker (VpnService ohne externen Server)" />
+        </service>
+
+        <!-- Phase 3.4: App-Wechsel für Fokus-Bremse & Lautstärke pro App -->
+        <service
+            android:name=".data.extras.AppSwitchAccessibilityService"
+            android:exported="false"
+            android:label="@string/app_switch_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_app_switch_config" />
+        </service>
+
+        <!-- Phase 3.4: Ersatz ohne Bedienungshilfe (nur bei eingeschaltetem Display aktiv) -->
+        <service
+            android:name=".data.extras.ForegroundMonitorService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Vom Nutzer aktivierte Fokus-Bremse und Lautstärke pro App: erkennt die Vordergrund-App über UsageStats" />
+        </service>
+
         <provider
             android:name="rikka.shizuku.ShizukuProvider"
             android:authorities="${applicationId}.shizuku"

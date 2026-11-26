@@ -51,6 +51,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        viewModel.onResume()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleIntent(intent)
@@ -65,6 +70,8 @@ class MainActivity : ComponentActivity() {
             DESTINATION_BATTERY -> Routes.GUARD_BATTERY
             DESTINATION_NOTIFICATIONS -> Routes.GUARD_NOTIFICATIONS
             DESTINATION_EXPIRED_REVIEW -> Routes.review(Routes.REVIEW_MODE_EXPIRED)
+            DESTINATION_TRACKER -> Routes.EXTRAS_TRACKER
+            DESTINATION_EXTRAS -> Routes.EXTRAS
             else -> null
         }
         route?.let(viewModel::setPendingDestination)
@@ -79,5 +86,7 @@ class MainActivity : ComponentActivity() {
         const val DESTINATION_BATTERY = "battery"
         const val DESTINATION_NOTIFICATIONS = "notifications"
         const val DESTINATION_EXPIRED_REVIEW = "expired_review"
+        const val DESTINATION_TRACKER = "tracker"
+        const val DESTINATION_EXTRAS = "extras"
     }
 }

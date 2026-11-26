@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Deinstallieren aus dem Kontextmenü (System-Dialog) -->
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+    <!-- WLAN-Erkennung für den Profilwechsel -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <application>
+        <!--
+            Phase 3.1: eigener Startbildschirm. Standardmäßig deaktiviert – erst der Schalter
+            unter Extras → Launcher aktiviert die Komponente (setComponentEnabledSetting).
+        -->
+        <activity
+            android:name=".ui.LauncherActivity"
+            android:clearTaskOnLaunch="true"
+            android:enabled="false"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:label="@string/launcher_label"
+            android:launchMode="singleTask"
+            android:resizeableActivity="true"
+            android:resumeWhilePausing="true"
+            android:stateNotNeeded="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.MobileManager.Launcher"
+            android:windowSoftInputMode="adjustPan">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".ui.LauncherSettingsActivity"
+            android:exported="false"
+            android:label="@string/launcher_settings_label"
+            android:taskAffinity="app.mobilemanager.launcher.settings"
+            android:theme="@style/Theme.MobileManager.LauncherSettings"
+            android:windowSoftInputMode="adjustResize" />
+    </application>
+</manifest>

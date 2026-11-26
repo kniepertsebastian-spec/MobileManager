@@ -144,6 +144,8 @@ enum class PermissionKind {
     NOTIFICATION_LISTENER,
     LOCATION,
     ALL_FILES,
+    // Phase 3 (optional)
+    APP_SWITCH_ACCESSIBILITY,
 }
 
 enum class GrantState { GRANTED, PARTIAL, DENIED }

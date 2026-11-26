@@ -13,10 +13,13 @@ import androidx.room.RoomDatabase
         SecurityEventEntity::class,
         NotificationEntryEntity::class,
         KeptExpiredFileEntity::class,
+        TrackerAppStatEntity::class,
+        TrackerDomainStatEntity::class,
+        AppVolumeRuleEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
-    autoMigrations = [AutoMigration(from = 1, to = 2)],
+    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3)],
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun whitelistDao(): WhitelistDao
@@ -26,6 +29,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun securityEventDao(): SecurityEventDao
     abstract fun notificationEntryDao(): NotificationEntryDao
     abstract fun keptExpiredFileDao(): KeptExpiredFileDao
+    abstract fun trackerStatsDao(): TrackerStatsDao
+    abstract fun appVolumeRuleDao(): AppVolumeRuleDao
 
     companion object {
         const val NAME = "mobilemanager.db"

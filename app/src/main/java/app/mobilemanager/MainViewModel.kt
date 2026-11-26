@@ -3,9 +3,15 @@ package app.mobilemanager
 import android.app.Application
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import app.mobilemanager.data.extras.ExtrasCoordinator
+import app.mobilemanager.data.extras.ExtrasSettingsRepository
+import app.mobilemanager.data.extras.ForegroundAppTracker
 import app.mobilemanager.data.guard.GuardService
 import app.mobilemanager.data.guard.GuardSettingsRepository
 import app.mobilemanager.data.settings.SettingsRepository
+import app.mobilemanager.data.tracker.TrackerSettingsRepository
+import app.mobilemanager.data.tracker.TrackerVpnController
+import app.mobilemanager.data.tracker.TrackerVpnState
 import app.mobilemanager.data.work.WorkScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,6 +30,11 @@ class MainViewModel @Inject constructor(
     settings: SettingsRepository,
     guardSettings: GuardSettingsRepository,
     workScheduler: WorkScheduler,
+    trackerSettings: TrackerSettingsRepository,
+    private val trackerVpn: TrackerVpnController,
+    extrasSettings: ExtrasSettingsRepository,
+    private val extrasCoordinator: ExtrasCoordinator,
+    private val foregroundTracker: ForegroundAppTracker,
 ) : ViewModel() {
 
     /** `null` solange DataStore noch lädt. */
@@ -50,6 +61,28 @@ class MainViewModel @Inject constructor(
                 if (s.realtimeServiceEnabled) GuardService.start(application) else GuardService.stop(application)
             }
         }
+        // Phase 3: Tracker-Blocker folgt dem Schalter (Start nur mit erteilter VPN-Zustimmung).
+        viewModelScope.launch {
+            trackerSettings.settings.map { it.enabled }.distinctUntilChanged().collect { enabled ->
+                if (enabled) {
+                    if (!TrackerVpnState.running.value) trackerVpn.start()
+                } else {
+                    trackerVpn.stop()
+                }
+            }
+        }
+        // Phase 3: UsageStats-Dienst nur, wenn Fokus-Bremse/Lautstärke ihn brauchen.
+        viewModelScope.launch {
+            extrasSettings.settings.distinctUntilChanged().collect { s ->
+                extrasCoordinator.apply(s)
+                if (!s.volumeEnabled) foregroundTracker.reset()
+            }
+        }
+    }
+
+    /** Beim Zurückkehren in die App (z. B. nach dem Einschalten der Bedienungshilfe) neu abgleichen. */
+    fun onResume() {
+        extrasCoordinator.sync()
     }
 
     fun setPendingDestination(route: String) {

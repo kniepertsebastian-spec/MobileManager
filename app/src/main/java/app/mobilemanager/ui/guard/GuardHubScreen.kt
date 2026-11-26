@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.GppMaybe
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Policy
+import androidx.compose.material.icons.filled.VpnLock
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -43,6 +44,8 @@ import app.mobilemanager.data.guard.GuardSettingsRepository
 import app.mobilemanager.data.notifications.NotificationRepository
 import app.mobilemanager.data.security.DeviceAdminHelper
 import app.mobilemanager.data.security.SecurityEventRepository
+import app.mobilemanager.data.tracker.TrackerStatsRepository
+import app.mobilemanager.data.tracker.TrackerVpnState
 import app.mobilemanager.domain.model.AlertConfig
 import app.mobilemanager.domain.model.BatteryStatus
 import app.mobilemanager.domain.model.NightReport
@@ -64,6 +67,7 @@ class GuardHubViewModel @Inject constructor(
     alertConfig: AlertConfigStore,
     private val deviceAdmin: DeviceAdminHelper,
     private val notificationRepository: NotificationRepository,
+    trackerStats: TrackerStatsRepository,
 ) : ViewModel() {
     private fun <T> Flow<T>.state(initial: T) = stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), initial)
 
@@ -74,6 +78,8 @@ class GuardHubViewModel @Inject constructor(
     val alert: StateFlow<AlertConfig> = alertConfig.config.state(AlertConfig())
     val expiredCount: StateFlow<Int?> = guardSettings.expiredFilesCount.state(null)
     val pendingDigest = notificationRepository.pendingDigest.state(emptyList())
+    val trackerRunning: StateFlow<Boolean> = TrackerVpnState.running
+    val trackerToday: StateFlow<Int> = trackerStats.blockedToday.state(0)
 
     private val _adminActive = MutableStateFlow(deviceAdmin.isActive())
     val adminActive: StateFlow<Boolean> = _adminActive.asStateFlow()
@@ -94,8 +100,11 @@ fun GuardHubScreen(
     onOpenBattery: () -> Unit,
     onOpenNotifications: () -> Unit,
     onOpenExpiredReview: () -> Unit,
+    onOpenTracker: () -> Unit,
     viewModel: GuardHubViewModel = hiltViewModel(),
 ) {
+    val trackerRunning by viewModel.trackerRunning.collectAsStateWithLifecycle()
+    val trackerToday by viewModel.trackerToday.collectAsStateWithLifecycle()
     val battery by viewModel.battery.collectAsStateWithLifecycle()
     val nightReport by viewModel.nightReport.collectAsStateWithLifecycle()
     val events by viewModel.events.collectAsStateWithLifecycle()
@@ -141,6 +150,14 @@ fun GuardHubScreen(
                 ?: "Noch kein Nacht-Bericht",
             warning = false,
             onClick = onOpenBattery,
+        )
+        HubCard(
+            icon = Icons.Default.VpnLock,
+            title = "Tracker-Blocker",
+            headline = if (trackerRunning) "Aktiv · heute $trackerToday blockiert" else "Aus",
+            detail = "Lokales VPN gegen Werbe- und Tracking-Domains, Rangliste pro App",
+            warning = false,
+            onClick = onOpenTracker,
         )
         HubCard(
             icon = Icons.Default.Policy,

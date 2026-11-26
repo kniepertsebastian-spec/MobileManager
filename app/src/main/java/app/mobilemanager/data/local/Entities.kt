@@ -110,3 +110,28 @@ data class KeptExpiredFileEntity(
     @PrimaryKey val mediaId: Long,
     val keptAt: Long,
 )
+
+// ---------------------------------------------------------------- Phase 3
+
+/** Meilenstein 3.3.3: blockierte Tracker-Anfragen pro App und Tag (aggregiert, keine Einzelpakete). */
+@Entity(tableName = "tracker_app_stats", primaryKeys = ["day", "packageName"])
+data class TrackerAppStatEntity(
+    /** Datum als yyyyMMdd. */
+    val day: Int,
+    val packageName: String,
+    val blocked: Int,
+)
+
+@Entity(tableName = "tracker_domain_stats", primaryKeys = ["day", "domain"])
+data class TrackerDomainStatEntity(
+    val day: Int,
+    val domain: String,
+    val blocked: Int,
+)
+
+/** Meilenstein 3.4.2: gewünschte Medienlautstärke pro App. */
+@Entity(tableName = "app_volume_rules")
+data class AppVolumeRuleEntity(
+    @PrimaryKey val packageName: String,
+    val volumePercent: Int,
+)

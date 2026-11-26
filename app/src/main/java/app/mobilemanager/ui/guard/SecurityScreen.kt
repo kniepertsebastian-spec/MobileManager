@@ -38,7 +38,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import app.mobilemanager.data.apps.InstalledAppsRepository
 import app.mobilemanager.data.guard.GuardSettings
+import app.mobilemanager.data.local.TrackerCount
+import app.mobilemanager.data.tracker.TrackerStatsRepository
+import app.mobilemanager.data.tracker.TrackerVpnState
+import app.mobilemanager.ui.extras.AppCountRow
 import app.mobilemanager.data.guard.GuardSettingsRepository
 import app.mobilemanager.data.security.DeviceAdminHelper
 import app.mobilemanager.data.security.LocationHelper
@@ -74,7 +79,17 @@ class SecurityViewModel @Inject constructor(
     private val deviceAdmin: DeviceAdminHelper,
     private val simMonitor: SimMonitor,
     private val location: LocationHelper,
+    trackerStats: TrackerStatsRepository,
+    private val apps: InstalledAppsRepository,
 ) : ViewModel() {
+
+    /** Meilenstein 3.3.3: Rangliste der Apps mit den meisten blockierten Tracker-Anfragen heute. */
+    val trackerTop: StateFlow<List<TrackerCount>> =
+        trackerStats.topAppsToday(5).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val trackerRunning: StateFlow<Boolean> = TrackerVpnState.running
+
+    fun appLabel(packageName: String): String =
+        if (packageName == TrackerStatsRepository.UNKNOWN_APP) "System / nicht zuordenbar" else apps.labelOf(packageName)
 
     val settings: StateFlow<GuardSettings> =
         guardSettings.settings.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), GuardSettings())
@@ -137,8 +152,11 @@ fun SecurityScreen(
     onBack: () -> Unit,
     onOpenPermissions: () -> Unit,
     onOpenAlerts: () -> Unit,
+    onOpenTracker: () -> Unit,
     viewModel: SecurityViewModel = hiltViewModel(),
 ) {
+    val trackerTop by viewModel.trackerTop.collectAsStateWithLifecycle()
+    val trackerRunning by viewModel.trackerRunning.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val events by viewModel.events.collectAsStateWithLifecycle()
@@ -191,6 +209,17 @@ fun SecurityScreen(
                     if (settings.attachLocation && !state.hasBackgroundLocation) {
                         TextButton(onClick = onOpenPermissions) { Text("Standort erlauben") }
                     }
+                }
+            }
+            item {
+                SectionCard {
+                    Text("Tracker heute", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        if (trackerRunning) "Apps mit den meisten blockierten Tracker-Anfragen" else "Tracker-Blocker ist aus",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    trackerTop.forEach { entry -> AppCountRow(entry, viewModel.appLabel(entry.name)) }
+                    TextButton(onClick = onOpenTracker) { Text(if (trackerRunning) "Details" else "Tracker-Blocker einrichten") }
                 }
             }
             item {

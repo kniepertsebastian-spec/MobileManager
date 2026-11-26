@@ -14,6 +14,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import app.mobilemanager.MainActivity
 import app.mobilemanager.R
+import app.mobilemanager.data.tracker.TrackerVpnService
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -56,6 +57,18 @@ class AppNotifications @Inject constructor(
         manager.createNotificationChannel(
             NotificationChannel(CHANNEL_GUARD_SERVICE, "Echtzeit-Wächter", NotificationManager.IMPORTANCE_MIN).apply {
                 description = "Dauerhafte Benachrichtigung des optionalen Echtzeit-Wächters"
+                setShowBadge(false)
+            },
+        )
+        manager.createNotificationChannel(
+            NotificationChannel(CHANNEL_TRACKER, "Tracker-Blocker", NotificationManager.IMPORTANCE_MIN).apply {
+                description = "Dauerhafte Benachrichtigung des lokalen Tracker-Blockers"
+                setShowBadge(false)
+            },
+        )
+        manager.createNotificationChannel(
+            NotificationChannel(CHANNEL_FOREGROUND_MONITOR, "Fokus-Bremse & Lautstärke", NotificationManager.IMPORTANCE_MIN).apply {
+                description = "Nur aktiv, wenn Fokus-Bremse oder Lautstärke pro App ohne Bedienungshilfe laufen"
                 setShowBadge(false)
             },
         )
@@ -119,6 +132,52 @@ class AppNotifications @Inject constructor(
             .setContentTitle("Echtzeit-Wächter aktiv")
             .setContentText("Überwacht Akku und neue App-Installationen")
             .setContentIntent(pendingIntent(ID_GUARD_SERVICE, MainActivity.DESTINATION_BATTERY))
+            .setOngoing(true)
+            .setSilent(true)
+            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .build()
+
+    // ---------------------------------------------------------------- Phase 3
+
+    fun trackerServiceNotification(blocked: Int): Notification {
+        val stop = PendingIntent.getService(
+            context, ID_TRACKER_SERVICE,
+            Intent(context, TrackerVpnService::class.java).setAction(TrackerVpnService.ACTION_STOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        return NotificationCompat.Builder(context, CHANNEL_TRACKER)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle("Tracker-Blocker aktiv")
+            .setContentText(if (blocked == 0) "Filtert DNS-Anfragen lokal auf dem Gerät" else "$blocked Tracker-Anfragen blockiert")
+            .setContentIntent(pendingIntent(ID_TRACKER_SERVICE, MainActivity.DESTINATION_TRACKER))
+            .addAction(0, "Ausschalten", stop)
+            .setOngoing(true)
+            .setSilent(true)
+            .setOnlyAlertOnce(true)
+            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .build()
+    }
+
+    fun updateTrackerServiceNotification(blocked: Int) {
+        if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        NotificationManagerCompat.from(context).notify(ID_TRACKER_SERVICE, trackerServiceNotification(blocked))
+    }
+
+    fun trackerConfigureIntent(): PendingIntent = pendingIntent(ID_TRACKER_CONFIGURE, MainActivity.DESTINATION_TRACKER)
+
+    fun showTrackerRevoked() = show(
+        ID_TRACKER_REVOKED,
+        "Tracker-Blocker beendet",
+        "Ein anderes VPN wurde gestartet oder die VPN-Berechtigung entzogen. Android erlaubt nur ein aktives VPN.",
+        MainActivity.DESTINATION_TRACKER,
+    )
+
+    fun foregroundMonitorNotification(): Notification =
+        NotificationCompat.Builder(context, CHANNEL_FOREGROUND_MONITOR)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle("Fokus-Bremse & Lautstärke aktiv")
+            .setContentText("Tipp: Mit der Bedienungshilfe reagiert MobileManager sofort und ohne diese Meldung.")
+            .setContentIntent(pendingIntent(ID_FOREGROUND_MONITOR, MainActivity.DESTINATION_EXTRAS))
             .setOngoing(true)
             .setSilent(true)
             .setPriority(NotificationCompat.PRIORITY_MIN)
@@ -191,6 +250,12 @@ class AppNotifications @Inject constructor(
         private const val ID_EXPIRED = 1006
         private const val ID_DIGEST = 1007
         const val ID_GUARD_SERVICE = 1008
+        private const val CHANNEL_TRACKER = "tracker_service"
+        private const val CHANNEL_FOREGROUND_MONITOR = "foreground_monitor"
+        const val ID_TRACKER_SERVICE = 1009
+        private const val ID_TRACKER_CONFIGURE = 1010
+        private const val ID_TRACKER_REVOKED = 1011
+        const val ID_FOREGROUND_MONITOR = 1012
         private const val MAX_DIGEST_LINES = 7
     }
 }

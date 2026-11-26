@@ -6,6 +6,7 @@
 .DS_Store
 /build/
 /app/build/
+/feature-launcher/build/
 /captures
 .externalNativeBuild
 .cxx

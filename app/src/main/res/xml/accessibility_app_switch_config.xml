@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Nur Fensterwechsel, keine Fensterinhalte. Ohne aktives Extra setzt der Dienst eventTypes zur Laufzeit auf 0. -->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:canRetrieveWindowContent="false"
+    android:description="@string/app_switch_service_description"
+    android:notificationTimeout="0" />

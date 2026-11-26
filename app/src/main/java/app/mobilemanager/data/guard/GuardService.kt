@@ -12,6 +12,10 @@ import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import app.mobilemanager.data.battery.BatteryGuard
 import app.mobilemanager.data.battery.BatteryMonitor
+import app.mobilemanager.data.extras.ExtrasCoordinator
+import app.mobilemanager.data.bluetooth.BluetoothRepository
+import app.mobilemanager.data.tracker.TrackerSettingsRepository
+import app.mobilemanager.data.tracker.TrackerVpnController
 import app.mobilemanager.data.security.PackageInstallMonitor
 import app.mobilemanager.data.security.SimMonitor
 import app.mobilemanager.data.work.AppNotifications
@@ -101,6 +105,10 @@ class GuardBootReceiver : BroadcastReceiver() {
     interface BootEntryPoint {
         fun guardSettings(): GuardSettingsRepository
         fun simMonitor(): SimMonitor
+        fun trackerSettings(): TrackerSettingsRepository
+        fun trackerVpn(): TrackerVpnController
+        fun extrasCoordinator(): ExtrasCoordinator
+        fun bluetoothRepository(): BluetoothRepository
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -111,6 +119,11 @@ class GuardBootReceiver : BroadcastReceiver() {
             try {
                 if (entryPoint.guardSettings().settings.first().realtimeServiceEnabled) GuardService.start(context)
                 entryPoint.simMonitor().check()
+                // Phase 3: Tracker-Blocker und Fokus-/Lautstärke-Dienst wiederherstellen.
+                if (entryPoint.trackerSettings().current().enabled) entryPoint.trackerVpn().start()
+                entryPoint.extrasCoordinator().sync()
+                // Verbundene Bluetooth-Geräte nach dem Neustart abgleichen (Launcher-Profilwechsel).
+                if (intent.action == Intent.ACTION_BOOT_COMPLETED) entryPoint.bluetoothRepository().refreshConnectedDevices()
             } finally {
                 pending.finish()
             }

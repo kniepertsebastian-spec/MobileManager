@@ -15,8 +15,8 @@ android {
         applicationId = "app.mobilemanager"
         minSdk = 33
         targetSdk = 37
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -62,6 +62,9 @@ ksp {
 }
 
 dependencies {
+    // Phase 3: Custom Launcher als eigenständiges Feature-Modul
+    implementation(project(":feature-launcher"))
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)

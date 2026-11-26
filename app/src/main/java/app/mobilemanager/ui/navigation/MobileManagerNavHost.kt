@@ -8,6 +8,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoMode
 import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shield
@@ -38,6 +39,13 @@ import app.mobilemanager.ui.automation.AutomationScreen
 import app.mobilemanager.ui.cleaner.CleanerScreen
 import app.mobilemanager.ui.cleaner.SwipeReviewScreen
 import app.mobilemanager.ui.dashboard.DashboardScreen
+import app.mobilemanager.ui.extras.ApkBackupScreen
+import app.mobilemanager.ui.extras.AppVolumeScreen
+import app.mobilemanager.ui.extras.DiagnosticsScreen
+import app.mobilemanager.ui.extras.DisplayTestScreen
+import app.mobilemanager.ui.extras.ExtrasScreen
+import app.mobilemanager.ui.extras.FocusBrakeScreen
+import app.mobilemanager.ui.extras.TrackerBlockerScreen
 import app.mobilemanager.ui.guard.AlertSettingsScreen
 import app.mobilemanager.ui.guard.AuditScreen
 import app.mobilemanager.ui.guard.BatteryScreen
@@ -65,6 +73,13 @@ object Routes {
     const val GUARD_AUDIT = "guard/audit"
     const val GUARD_BATTERY = "guard/battery"
     const val GUARD_NOTIFICATIONS = "guard/notifications"
+    const val EXTRAS = "extras"
+    const val EXTRAS_TRACKER = "extras/tracker"
+    const val EXTRAS_FOCUS = "extras/focus"
+    const val EXTRAS_VOLUME = "extras/volume"
+    const val EXTRAS_DIAGNOSTICS = "extras/diagnostics"
+    const val EXTRAS_DISPLAY_TEST = "extras/display_test"
+    const val EXTRAS_BACKUP = "extras/backup"
 
     fun review(mode: String = REVIEW_MODE_PHOTOS) = "cleaner/review?mode=$mode"
 
@@ -107,6 +122,9 @@ fun MobileManagerNavHost(
                 TopAppBar(
                     title = { Text(currentTopLevel.label) },
                     actions = {
+                        IconButton(onClick = { navController.navigate(Routes.EXTRAS) }) {
+                            Icon(Icons.Default.Extension, contentDescription = "Launcher & Extras")
+                        }
                         IconButton(onClick = { navController.navigate(Routes.PERMISSIONS) }) {
                             Icon(Icons.Default.Security, contentDescription = "Berechtigungen")
                         }
@@ -186,6 +204,7 @@ fun MobileManagerNavHost(
                         onOpenBattery = { navController.navigate(Routes.GUARD_BATTERY) },
                         onOpenNotifications = { navController.navigate(Routes.GUARD_NOTIFICATIONS) },
                         onOpenExpiredReview = { navController.navigate(Routes.review(Routes.REVIEW_MODE_EXPIRED)) },
+                        onOpenTracker = { navController.navigate(Routes.EXTRAS_TRACKER) },
                     )
                 }
                 composable(Routes.GUARD_SECURITY) {
@@ -193,6 +212,7 @@ fun MobileManagerNavHost(
                         onBack = { navController.popBackStack() },
                         onOpenPermissions = { navController.navigate(Routes.PERMISSIONS) },
                         onOpenAlerts = { navController.navigate(Routes.GUARD_ALERTS) },
+                        onOpenTracker = { navController.navigate(Routes.EXTRAS_TRACKER) },
                     )
                 }
                 composable(Routes.GUARD_ALERTS) {
@@ -223,6 +243,27 @@ fun MobileManagerNavHost(
                         onOnboardingFinished = {},
                     )
                 }
+                composable(Routes.EXTRAS) {
+                    ExtrasScreen(
+                        onBack = { navController.popBackStack() },
+                        onOpenTracker = { navController.navigate(Routes.EXTRAS_TRACKER) },
+                        onOpenFocus = { navController.navigate(Routes.EXTRAS_FOCUS) },
+                        onOpenVolume = { navController.navigate(Routes.EXTRAS_VOLUME) },
+                        onOpenDiagnostics = { navController.navigate(Routes.EXTRAS_DIAGNOSTICS) },
+                        onOpenBackup = { navController.navigate(Routes.EXTRAS_BACKUP) },
+                    )
+                }
+                composable(Routes.EXTRAS_TRACKER) { TrackerBlockerScreen(onBack = { navController.popBackStack() }) }
+                composable(Routes.EXTRAS_FOCUS) { FocusBrakeScreen(onBack = { navController.popBackStack() }) }
+                composable(Routes.EXTRAS_VOLUME) { AppVolumeScreen(onBack = { navController.popBackStack() }) }
+                composable(Routes.EXTRAS_DIAGNOSTICS) {
+                    DiagnosticsScreen(
+                        onBack = { navController.popBackStack() },
+                        onOpenDisplayTest = { navController.navigate(Routes.EXTRAS_DISPLAY_TEST) },
+                    )
+                }
+                composable(Routes.EXTRAS_DISPLAY_TEST) { DisplayTestScreen(onDone = { navController.popBackStack() }) }
+                composable(Routes.EXTRAS_BACKUP) { ApkBackupScreen(onBack = { navController.popBackStack() }) }
                 composable(Routes.SETTINGS) {
                     SettingsScreen(onBack = { navController.popBackStack() })
                 }

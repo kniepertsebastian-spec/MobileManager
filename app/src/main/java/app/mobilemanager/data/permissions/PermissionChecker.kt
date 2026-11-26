@@ -13,6 +13,7 @@ import android.os.PowerManager
 import android.os.Process
 import android.provider.Settings
 import android.os.Environment
+import app.mobilemanager.data.extras.AppSwitchAccessibilityService
 import app.mobilemanager.data.forcestop.ForceStopEngine
 import app.mobilemanager.data.notifications.NotificationArchiveService
 import app.mobilemanager.data.notifications.NotificationRepository
@@ -92,6 +93,12 @@ class PermissionChecker @Inject constructor(
                 "Nur nötig, damit auch alte PDFs & Co. im Download-Ordner gefunden werden (Bilder gehen ohne).",
                 Environment.isExternalStorageManager(), required = false,
             ),
+            status(
+                PermissionKind.APP_SWITCH_ACCESSIBILITY, "Bedienungshilfe (Fokus-Bremse & Lautstärke)",
+                "Optional: erkennt App-Wechsel sofort, ohne dauerhafte Benachrichtigung. Liest nur, welche App " +
+                    "geöffnet wird – keine Inhalte. Ebenfalls „Eingeschränkte Einstellungen zulassen“ nötig.",
+                AppSwitchAccessibilityService.isEnabled(context), required = false,
+            ),
         )
     }
 
@@ -153,7 +160,9 @@ class PermissionChecker @Inject constructor(
             PermissionKind.OVERLAY -> Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, pkgUri)
             PermissionKind.BATTERY_OPTIMIZATION ->
                 Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, pkgUri)
-            PermissionKind.ACCESSIBILITY -> Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+            PermissionKind.ACCESSIBILITY,
+            PermissionKind.APP_SWITCH_ACCESSIBILITY,
+            -> Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
             PermissionKind.DEVICE_ADMIN -> deviceAdmin.activationIntent()
             PermissionKind.NOTIFICATION_LISTENER -> Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS)
                 .putExtra(
