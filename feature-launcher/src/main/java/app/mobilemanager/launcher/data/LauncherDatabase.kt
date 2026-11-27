@@ -1,5 +1,6 @@
 package app.mobilemanager.launcher.data
 
+import androidx.room.AutoMigration
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
@@ -156,12 +157,41 @@ interface LauncherDao {
 
     @Query("DELETE FROM rules WHERE profileId = :profileId")
     suspend fun deleteRulesOf(profileId: Long)
+
+    @Query("SELECT * FROM tidy_folders ORDER BY sortOrder, id")
+    fun observeTidyFolders(): Flow<List<TidyFolderEntity>>
+
+    @Query("SELECT COALESCE(MAX(sortOrder), -1) FROM tidy_folders")
+    suspend fun maxTidyFolderOrder(): Int
+
+    @Upsert
+    suspend fun upsertTidyFolder(folder: TidyFolderEntity)
+
+    @Query("DELETE FROM tidy_folders WHERE id = :id")
+    suspend fun deleteTidyFolder(id: Long)
 }
 
+/** Eigene Ordner-Regel fürs „Ordnen“. Listen sind zeilenweise gespeichert (Paket-/Klassennamen enthalten keinen Umbruch). */
+@Entity(tableName = "tidy_folders")
+data class TidyFolderEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val title: String,
+    val componentKeys: String = "",
+    val packagePrefixes: String = "",
+    val includeSideloaded: Boolean = false,
+    val includeDrawerApps: Boolean = true,
+    val enabled: Boolean = true,
+    val sortOrder: Int = 0,
+)
+
 @Database(
-    entities = [ProfileEntity::class, ItemEntity::class, SnapshotEntity::class, SnapshotItemEntity::class, RuleEntity::class],
-    version = 1,
+    entities = [
+        ProfileEntity::class, ItemEntity::class, SnapshotEntity::class, SnapshotItemEntity::class, RuleEntity::class,
+        TidyFolderEntity::class,
+    ],
+    version = 2,
     exportSchema = true,
+    autoMigrations = [AutoMigration(from = 1, to = 2)],
 )
 abstract class LauncherDatabase : RoomDatabase() {
     abstract fun dao(): LauncherDao

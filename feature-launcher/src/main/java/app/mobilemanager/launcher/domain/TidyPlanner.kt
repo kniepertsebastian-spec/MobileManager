@@ -13,7 +13,35 @@ data class TidyOptions(
 enum class ArchiveMode { FOLDER, REMOVE }
 
 /** Daten zu einer installierten App, die der Planer braucht. */
-data class AppMeta(val label: String, val category: AppCategory, val lastUsed: Long?)
+data class AppMeta(
+    val label: String,
+    val category: AppCategory,
+    val lastUsed: Long?,
+    val packageName: String = "",
+    /** Per APK-Datei oder USB installiert (nicht aus einem App-Store, keine System-App). */
+    val sideloaded: Boolean = false,
+)
+
+/**
+ * Eigene Ordner-Regel fürs Ordnen. Eine App passt, wenn sie fest ausgewählt ist, ihr Paketname mit einem der
+ * Präfixe beginnt oder – falls eingeschaltet – sie selbst installiert wurde. Regeln haben Vorrang vor den Kategorien.
+ */
+data class CustomFolderRule(
+    val id: Long = 0,
+    val title: String,
+    val componentKeys: Set<String> = emptySet(),
+    val packagePrefixes: List<String> = emptyList(),
+    val includeSideloaded: Boolean = false,
+    /** Passende Apps auch aus dem App-Drawer holen, nicht nur vom Startbildschirm. */
+    val includeDrawerApps: Boolean = true,
+    val enabled: Boolean = true,
+    val sortOrder: Int = 0,
+) {
+    fun matches(key: String, app: AppMeta): Boolean =
+        key in componentKeys ||
+            packagePrefixes.any { it.isNotBlank() && app.packageName.startsWith(it) } ||
+            (includeSideloaded && app.sideloaded)
+}
 
 /** Ergebnis-Layout (ohne IDs) – das Repository legt daraus neue Datenbankzeilen an. */
 sealed interface PlannedEntry {
@@ -37,6 +65,8 @@ data class TidyPlan(
     val appsArchived: Int,
     val appsRemoved: Int,
     val usageDataMissing: Boolean,
+    /** Apps, die eine eigene Regel aus dem App-Drawer auf den Startbildschirm holt. */
+    val appsAddedFromDrawer: Int,
     /** Wie viele Apps liegen aktuell auf dem Startbildschirm (lose oder in Ordnern)? */
     val homeAppCount: Int,
     /** Unterscheidet sich das Ergebnis überhaupt vom aktuellen Homescreen? */
@@ -48,7 +78,7 @@ data class TidyPlan(
 /**
  * Meilenstein 3.2: One-Click-Sortierung. Rein funktional und deterministisch:
  * gleiche Eingabe → gleiches Layout. Ein zweiter Durchlauf auf dem Ergebnis ändert nichts mehr.
- * Das Dock bleibt unangetastet.
+ * Das Dock bleibt unangetastet. Reihenfolge: eigene Ordner, Kategorie-Ordner, lose Apps, Archiv.
  */
 object TidyPlanner {
 
@@ -63,6 +93,7 @@ object TidyPlanner {
         options: TidyOptions,
         pageSize: Int,
         now: Long,
+        customRules: List<CustomFolderRule> = emptyList(),
     ): TidyPlan {
         require(pageSize > 0)
         val home = items.filter { it.container == Container.HOME }.sortedWith(compareBy({ it.page }, { it.position }))
@@ -85,40 +116,61 @@ object TidyPlanner {
             }
         }
 
+        val byLabel = compareBy<String>({ apps.getValue(it).label.lowercase() }, { it })
+
+        // Eigene Regeln zuerst – die erste passende Regel gewinnt. Apps im Dock werden nicht dupliziert.
+        val dockKeys = items.filter { it.container == Container.DOCK }.mapNotNull { it.componentKey }.toSet()
+        val homeSet = homeApps.toSet()
+        val customGroups = LinkedHashMap<String, MutableList<String>>()
+        val assigned = mutableSetOf<String>()
+        customRules.filter { it.enabled && it.title.isNotBlank() }.sortedWith(compareBy({ it.sortOrder }, { it.id })).forEach { rule ->
+            val pool = if (rule.includeDrawerApps) apps.keys.filter { it in homeSet || it !in dockKeys } else homeApps
+            val members = pool.filter { it !in assigned && rule.matches(it, apps.getValue(it)) }
+            if (members.isNotEmpty()) {
+                customGroups.getOrPut(rule.title.trim()) { mutableListOf() } += members
+                assigned += members
+            }
+        }
+
         val usageDataMissing = options.archiveUnused && apps.values.none { it.lastUsed != null }
         val cutoff = now - TimeUnit.DAYS.toMillis(options.unusedDays.toLong())
         val unused = if (options.archiveUnused && !usageDataMissing) {
-            homeApps.filter { key -> (apps.getValue(key).lastUsed ?: 0L) < cutoff }.toSet()
+            homeApps.filter { key -> key !in assigned && (apps.getValue(key).lastUsed ?: 0L) < cutoff }.toSet()
         } else emptySet()
 
-        val keep = homeApps.filterNot { it in unused }
-        val byLabel = compareBy<String>({ apps.getValue(it).label.lowercase() }, { it })
+        val keep = homeApps.filterNot { it in unused || it in assigned }
 
-        val sequence = mutableListOf<Pair<String?, List<String>>>() // Titel (null = lose App) → Apps
+        val rest = mutableListOf<Pair<String?, List<String>>>() // Titel (null = lose App) → Apps
         if (options.collectIntoFolders) {
             val groups = keep.groupBy { apps.getValue(it).category }
             val loose = mutableListOf<String>()
             AppCategory.entries.forEach { category ->
-                val members = groups[category].orEmpty().sortedWith(byLabel)
+                val members = groups[category].orEmpty()
                 when {
-                    members.size >= MIN_FOLDER_SIZE -> sequence += category.label to members
+                    // Gleichnamiger eigener Ordner → zusammenlegen statt zwei Ordner mit demselben Namen.
+                    category.label in customGroups -> customGroups.getValue(category.label) += members
+                    members.size >= MIN_FOLDER_SIZE -> rest += category.label to members.sortedWith(byLabel)
                     else -> loose += members
                 }
             }
-            loose.sortedWith(byLabel).forEach { sequence += null to listOf(it) }
+            loose.sortedWith(byLabel).forEach { rest += null to listOf(it) }
         } else {
             // Ohne Sammeln: vorhandene Struktur behalten, nur archivierte Apps herausnehmen und Lücken schließen.
             home.forEach { item ->
                 if (item.isFolder) {
-                    val members = childrenOf[item.id].orEmpty().mapNotNull { it.componentKey }.filter { it in apps && it !in unused }
-                    if (members.isNotEmpty()) sequence += (item.title ?: "Ordner") to members
-                } else if (item.componentKey != null && item.componentKey in apps && item.componentKey !in unused) {
-                    sequence += null to listOf(item.componentKey)
+                    val members = childrenOf[item.id].orEmpty().mapNotNull { it.componentKey }
+                        .filter { it in apps && it !in unused && it !in assigned }
+                    if (members.isNotEmpty()) rest += (item.title ?: "Ordner") to members
+                } else if (item.componentKey != null && item.componentKey in apps && item.componentKey !in unused && item.componentKey !in assigned) {
+                    rest += null to listOf(item.componentKey)
                 }
             }
         }
         val archived = unused.sortedWith(byLabel)
-        if (archived.isNotEmpty() && options.archiveMode == ArchiveMode.FOLDER) sequence += ARCHIVE_TITLE to archived
+        if (archived.isNotEmpty() && options.archiveMode == ArchiveMode.FOLDER) {
+            if (ARCHIVE_TITLE in customGroups) customGroups.getValue(ARCHIVE_TITLE) += archived else rest += ARCHIVE_TITLE to archived
+        }
+        val sequence = customGroups.map { (title, members) -> title to members.distinct().sortedWith(byLabel) } + rest
 
         val entries = sequence.mapIndexed { index, (title, members) ->
             val page = index / pageSize
@@ -144,6 +196,7 @@ object TidyPlanner {
             appsArchived = if (options.archiveMode == ArchiveMode.FOLDER) archived.count { previousFolderOf[it] != ARCHIVE_TITLE } else 0,
             appsRemoved = if (options.archiveMode == ArchiveMode.REMOVE) archived.size else 0,
             usageDataMissing = usageDataMissing,
+            appsAddedFromDrawer = assigned.count { it !in homeSet },
             homeAppCount = homeApps.size,
             changesAnything = current != sequence || !compacted,
         )

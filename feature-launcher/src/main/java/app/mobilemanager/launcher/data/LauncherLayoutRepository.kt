@@ -8,6 +8,7 @@ import androidx.core.net.toUri
 import androidx.room.withTransaction
 import app.mobilemanager.launcher.domain.AppCategory
 import app.mobilemanager.launcher.domain.Container
+import app.mobilemanager.launcher.domain.CustomFolderRule
 import app.mobilemanager.launcher.domain.LauncherProfile
 import app.mobilemanager.launcher.domain.LayoutItem
 import app.mobilemanager.launcher.domain.PlannedEntry
@@ -38,6 +39,8 @@ class LauncherLayoutRepository @Inject constructor(
     val profiles: Flow<List<LauncherProfile>> = dao.observeProfiles().map { list -> list.map { it.toDomain() } }
 
     val rules: Flow<List<ProfileRule>> = dao.observeRules().map { list -> list.map { it.toDomain() } }
+
+    val customFolders: Flow<List<CustomFolderRule>> = dao.observeTidyFolders().map { list -> list.map { it.toDomain() } }
 
     fun items(profileId: Long): Flow<List<LayoutItem>> = dao.observeItems(profileId).map { list -> list.map { it.toDomain() } }
 
@@ -333,6 +336,35 @@ class LauncherLayoutRepository @Inject constructor(
     )
 
     suspend fun deleteRule(id: Long) = dao.deleteRule(id)
+
+    suspend fun saveCustomFolder(rule: CustomFolderRule) {
+        val order = if (rule.id == 0L) dao.maxTidyFolderOrder() + 1 else rule.sortOrder
+        dao.upsertTidyFolder(
+            TidyFolderEntity(
+                id = rule.id,
+                title = rule.title.trim().ifBlank { "Ordner" },
+                componentKeys = rule.componentKeys.joinToString("\n"),
+                packagePrefixes = rule.packagePrefixes.map { it.trim() }.filter { it.isNotEmpty() }.joinToString("\n"),
+                includeSideloaded = rule.includeSideloaded,
+                includeDrawerApps = rule.includeDrawerApps,
+                enabled = rule.enabled,
+                sortOrder = order,
+            ),
+        )
+    }
+
+    suspend fun deleteCustomFolder(id: Long) = dao.deleteTidyFolder(id)
+
+    private fun TidyFolderEntity.toDomain() = CustomFolderRule(
+        id = id,
+        title = title,
+        componentKeys = componentKeys.lines().filter { it.isNotBlank() }.toSet(),
+        packagePrefixes = packagePrefixes.lines().filter { it.isNotBlank() },
+        includeSideloaded = includeSideloaded,
+        includeDrawerApps = includeDrawerApps,
+        enabled = enabled,
+        sortOrder = sortOrder,
+    )
 
     private fun ProfileEntity.toDomain() = LauncherProfile(
         id = id,

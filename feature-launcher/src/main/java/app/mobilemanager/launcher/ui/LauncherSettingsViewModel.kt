@@ -1,9 +1,12 @@
 package app.mobilemanager.launcher.ui
 
 import android.app.Application
+import android.content.pm.ApplicationInfo
+import android.content.pm.PackageManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.mobilemanager.launcher.LauncherComponents
+import app.mobilemanager.launcher.data.LauncherApp
 import app.mobilemanager.launcher.data.LauncherAppsRepository
 import app.mobilemanager.launcher.data.LauncherContextRepository
 import app.mobilemanager.launcher.data.LauncherHostBridge
@@ -12,6 +15,7 @@ import app.mobilemanager.launcher.data.LauncherPreferences
 import app.mobilemanager.launcher.data.LauncherSettings
 import app.mobilemanager.launcher.data.SnapshotInfo
 import app.mobilemanager.launcher.domain.AppMeta
+import app.mobilemanager.launcher.domain.CustomFolderRule
 import app.mobilemanager.launcher.domain.LauncherProfile
 import app.mobilemanager.launcher.domain.ProfileKind
 import app.mobilemanager.launcher.domain.ProfileRule
@@ -69,20 +73,37 @@ class LauncherSettingsViewModel @Inject constructor(
     val options: StateFlow<TidyOptions> = _options.asStateFlow()
     private val lastUsed = MutableStateFlow<Map<String, Long>?>(null)
 
+    val customFolders: StateFlow<List<CustomFolderRule>> = layout.customFolders.state(emptyList())
+
+    /** Alle startbaren Apps für die Auswahl in eigenen Ordnern, alphabetisch. */
+    val installedApps: StateFlow<List<LauncherApp>> = appsRepository.apps.filterNotNull()
+        .map { apps -> apps.sortedBy { it.label.lowercase() } }
+        .state(emptyList())
+
+    /** Pakete, die per APK-Datei oder USB installiert wurden (für die Regel „selbst installierte Apps“). */
+    private val sideloaded = MutableStateFlow<Set<String>>(emptySet())
+    val sideloadedPackages: StateFlow<Set<String>> = sideloaded.asStateFlow()
+
     val plan: StateFlow<TidyPlan?> = _tidyProfileId.filterNotNull().flatMapLatest { profileId ->
         combine(
             layout.items(profileId),
             appsRepository.apps.filterNotNull(),
             _options,
             lastUsed.filterNotNull(),
-            combine(prefs.settings, layout.profiles) { s, p -> s to p },
-        ) { items, apps, options, usage, (settings, profiles) ->
-            val profile = profiles.firstOrNull { it.id == profileId }
-            val pageSize = if (profile?.largeIcons == true) LauncherLayoutRepository.CAR_GRID else settings.pageSize
+            combine(prefs.settings, layout.profiles, layout.customFolders, sideloaded) { s, p, f, side -> Extra(s, p, f, side) },
+        ) { items, apps, options, usage, extra ->
+            val profile = extra.profiles.firstOrNull { it.id == profileId }
+            val pageSize = if (profile?.largeIcons == true) LauncherLayoutRepository.CAR_GRID else extra.settings.pageSize
             val meta = apps.associate { app ->
-                app.key to AppMeta(app.label, app.category, if (app.isWorkProfile) null else usage[app.packageName])
+                app.key to AppMeta(
+                    label = app.label,
+                    category = app.category,
+                    lastUsed = if (app.isWorkProfile) null else usage[app.packageName],
+                    packageName = app.packageName,
+                    sideloaded = app.packageName in extra.sideloaded,
+                )
             }
-            TidyPlanner.plan(items, meta, options, pageSize, System.currentTimeMillis())
+            TidyPlanner.plan(items, meta, options, pageSize, System.currentTimeMillis(), extra.customFolders)
         }.flowOn(Dispatchers.Default)
     }.state(null)
 
@@ -99,9 +120,21 @@ class LauncherSettingsViewModel @Inject constructor(
         runCatching { layout.ensureInitialized(apps, prefs.current().pageSize) }
     }
 
+    private data class Extra(
+        val settings: LauncherSettings,
+        val profiles: List<LauncherProfile>,
+        val customFolders: List<CustomFolderRule>,
+        val sideloaded: Set<String>,
+    )
+
     init {
         appsRepository.start()
         refreshStatus()
+        viewModelScope.launch {
+            appsRepository.apps.filterNotNull().collect { apps ->
+                sideloaded.value = withContext(Dispatchers.IO) { findSideloaded(apps.map { it.packageName }.toSet()) }
+            }
+        }
         viewModelScope.launch {
             lastUsed.value = withContext(Dispatchers.IO) { runCatching { bridge.lastUsedByPackage() }.getOrDefault(emptyMap()) }
         }
@@ -148,6 +181,25 @@ class LauncherSettingsViewModel @Inject constructor(
         viewModelScope.launch { onDone(layout.undoLast(id)) }
     }
 
+    fun saveCustomFolder(rule: CustomFolderRule) {
+        viewModelScope.launch { layout.saveCustomFolder(rule) }
+    }
+
+    fun deleteCustomFolder(id: Long) {
+        viewModelScope.launch { layout.deleteCustomFolder(id) }
+    }
+
+    private fun findSideloaded(packages: Set<String>): Set<String> {
+        val pm = application.packageManager
+        return packages.filterTo(mutableSetOf()) { pkg ->
+            runCatching {
+                val info = pm.getApplicationInfo(pkg, PackageManager.ApplicationInfoFlags.of(0))
+                if (info.flags and ApplicationInfo.FLAG_SYSTEM != 0) return@runCatching false
+                pm.getInstallSourceInfo(pkg).installingPackageName in SIDELOAD_INSTALLERS
+            }.getOrDefault(false)
+        }
+    }
+
     // ------------------------------------------------------------- Profile & Regeln
     fun createProfile(name: String, copyFrom: Long?) {
         viewModelScope.launch {
@@ -179,4 +231,14 @@ class LauncherSettingsViewModel @Inject constructor(
     fun currentSsid(): Flow<String?> = contextRepository.wifiSsid()
 
     fun hasLocationPermission(): Boolean = contextRepository.hasLocationPermission()
+
+    private companion object {
+        /** `null` = per adb ohne Installer-Angabe; Shell = USB/adb; Paketinstaller = APK-Datei angetippt. */
+        val SIDELOAD_INSTALLERS = setOf(
+            null,
+            "com.android.shell",
+            "com.android.packageinstaller",
+            "com.google.android.packageinstaller",
+        )
+    }
 }

@@ -5,6 +5,7 @@ import app.mobilemanager.launcher.domain.AppCategory
 import app.mobilemanager.launcher.domain.AppMeta
 import app.mobilemanager.launcher.domain.ArchiveMode
 import app.mobilemanager.launcher.domain.Container
+import app.mobilemanager.launcher.domain.CustomFolderRule
 import app.mobilemanager.launcher.domain.LauncherContext
 import app.mobilemanager.launcher.domain.LayoutItem
 import app.mobilemanager.launcher.domain.PlannedEntry
@@ -127,6 +128,52 @@ class LauncherDomainTest {
         assertEquals(0, plan.appsArchived)
         assertEquals(2, plan.pages)
         assertEquals(1 to 1, plan.entries.last().let { it.page to it.position })
+    }
+
+    /** Eigene Apps: zwei per Paketname (eine nur im Drawer), eine selbst installiert, eine fest ausgewählt. */
+    private val withOwnApps = apps.mapValues { it.value.copy(packageName = "com.store.${it.key}") } + mapOf(
+        "mine1" to AppMeta("MobileManager", AppCategory.TOOLS, old, packageName = "de.me.mobilemanager"),
+        "mine2" to AppMeta("Notizen", AppCategory.PRODUCTIVITY, recent, packageName = "de.me.notes"),
+        "apk" to AppMeta("Testapp", AppCategory.TOOLS, recent, packageName = "org.test", sideloaded = true),
+    )
+
+    private fun layoutWithOwnApps() = messyLayout() + LayoutItem(9, Container.HOME, 0, 11, "mine1")
+
+    @Test
+    fun `custom folder rules win over categories, pull drawer apps and are never archived`() {
+        val rule = CustomFolderRule(id = 1, title = "Meine Apps", packagePrefixes = listOf("de.me."), includeSideloaded = true, componentKeys = setOf("torch"))
+        val plan = TidyPlanner.plan(layoutWithOwnApps(), withOwnApps, TidyOptions(archiveUnused = true), 20, now, listOf(rule))
+        val first = plan.entries.first() as PlannedEntry.Folder
+        assertEquals("Meine Apps", first.title)
+        // alphabetisch: MobileManager, Notizen, Taschenlampe, Testapp
+        assertEquals(listOf("mine1", "mine2", "torch", "apk"), first.children)
+        assertEquals(2, plan.appsAddedFromDrawer) // Notizen und Testapp lagen nur im Drawer
+        // mine1 und torch sind alt, landen aber wegen der Regel nicht im Archiv
+        val archive = plan.entries.filterIsInstance<PlannedEntry.Folder>().single { it.title == TidyPlanner.ARCHIVE_TITLE }
+        assertEquals(listOf("paypal"), archive.children)
+
+        val applied = materialize(plan, messyLayout().filter { it.container == Container.DOCK })
+        assertFalse(TidyPlanner.plan(applied, withOwnApps, TidyOptions(archiveUnused = true), 20, now, listOf(rule)).changesAnything)
+    }
+
+    @Test
+    fun `custom rules respect drawer switch, dock, disabled state and merge same-named category`() {
+        val homeOnly = CustomFolderRule(id = 1, title = "Spiele", componentKeys = setOf("insta", "mine2"), includeDrawerApps = false)
+        val plan = TidyPlanner.plan(layoutWithOwnApps(), withOwnApps, TidyOptions(), 20, now, listOf(homeOnly))
+        val folders = plan.entries.filterIsInstance<PlannedEntry.Folder>()
+        // Ein einziger Ordner „Spiele“: Instagram aus der Regel plus die Spiele-Kategorie, Notizen (nur Drawer) bleibt draußen.
+        assertEquals(1, folders.count { it.title == "Spiele" })
+        assertEquals(listOf("game2", "insta", "game1"), folders.first { it.title == "Spiele" }.children)
+        assertEquals(0, plan.appsAddedFromDrawer)
+
+        // Apps nur im Dock werden nicht auf den Startbildschirm dupliziert.
+        val dockOnly = listOf(LayoutItem(1, Container.DOCK, 0, 0, "mine2"))
+        val drawerRule = CustomFolderRule(id = 2, title = "Meine", packagePrefixes = listOf("de.me."))
+        val fromDock = TidyPlanner.plan(dockOnly, withOwnApps, TidyOptions(), 20, now, listOf(drawerRule))
+        assertEquals(listOf("mine1"), (fromDock.entries.single() as PlannedEntry.Folder).children)
+
+        val disabled = TidyPlanner.plan(messyLayout(), withOwnApps, TidyOptions(), 20, now, listOf(drawerRule.copy(enabled = false)))
+        assertEquals(TidyPlanner.plan(messyLayout(), withOwnApps, TidyOptions(), 20, now).entries, disabled.entries)
     }
 
     private val car = ProfileRule(1, profileId = 3, type = RuleType.BLUETOOTH, value = "AA:BB:CC:DD:EE:FF")

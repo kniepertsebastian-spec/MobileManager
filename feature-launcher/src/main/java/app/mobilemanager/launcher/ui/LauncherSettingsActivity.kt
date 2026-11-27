@@ -5,6 +5,7 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -23,6 +24,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -32,7 +36,9 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bluetooth
+import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.SpaceDashboard
 import androidx.compose.material.icons.filled.Wifi
@@ -40,6 +46,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -73,8 +80,11 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.mobilemanager.launcher.LauncherComponents
+import app.mobilemanager.launcher.data.LauncherApp
 import app.mobilemanager.launcher.domain.AppCategory
+import app.mobilemanager.launcher.domain.AppMeta
 import app.mobilemanager.launcher.domain.ArchiveMode
+import app.mobilemanager.launcher.domain.CustomFolderRule
 import app.mobilemanager.launcher.domain.LauncherProfile
 import app.mobilemanager.launcher.domain.ProfileKind
 import app.mobilemanager.launcher.domain.ProfileRule
@@ -88,6 +98,19 @@ import kotlinx.coroutines.launch
 class LauncherSettingsActivity : ComponentActivity() {
 
     private val viewModel: LauncherSettingsViewModel by viewModels()
+
+    /**
+     * Der Rollen-Dialog „Standard-Startbildschirm“ erscheint nur per startActivityForResult – mit startActivity
+     * kennt das System die anfragende App nicht und schließt ihn sofort. Lehnt der Nutzer ab oder unterdrückt
+     * Android den Dialog (nach mehrfachem Ablehnen), geht es über die Einstellungsseite weiter.
+     */
+    private val roleRequest = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        viewModel.refreshStatus()
+        if (!LauncherComponents.isDefaultHome(this)) {
+            Toast.makeText(this, "Wähle „MobileManager“ als Startbildschirm-App", Toast.LENGTH_LONG).show()
+            startSafely(Intent(Settings.ACTION_HOME_SETTINGS))
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -114,7 +137,7 @@ class LauncherSettingsActivity : ComponentActivity() {
 
     private fun startSafely(intent: Intent) {
         try {
-            startActivity(intent)
+            if (intent.action == ACTION_REQUEST_ROLE) roleRequest.launch(intent) else startActivity(intent)
         } catch (_: ActivityNotFoundException) {
             Toast.makeText(this, "Einstellung nicht gefunden", Toast.LENGTH_SHORT).show()
         }
@@ -125,6 +148,9 @@ class LauncherSettingsActivity : ComponentActivity() {
         const val SCREEN_OVERVIEW = "overview"
         const val SCREEN_TIDY = "tidy"
         const val SCREEN_PROFILES = "profiles"
+
+        /** Aktion von [android.app.role.RoleManager.createRequestRoleIntent] (die Konstante selbst ist nicht öffentlich). */
+        private const val ACTION_REQUEST_ROLE = "android.app.role.action.REQUEST_ROLE"
 
         fun intent(context: Context, screen: String = SCREEN_OVERVIEW): Intent =
             Intent(context, LauncherSettingsActivity::class.java).putExtra(EXTRA_SCREEN, screen)
@@ -348,12 +374,13 @@ private fun TidyScreen(viewModel: LauncherSettingsViewModel, onBack: () -> Unit,
                     )
                 }
             }
+            CustomFoldersSection(viewModel)
             SectionCard {
                 Text("Vorschau", style = MaterialTheme.typography.titleSmall)
                 val p = plan
                 when {
                     p == null -> Text("Wird berechnet …")
-                    p.homeAppCount == 0 -> Text(
+                    p.homeAppCount == 0 && !p.changesAnything -> Text(
                         "Auf dem Startbildschirm dieses Profils liegen keine Apps – es gibt nichts zu ordnen. Im App-Drawer (vom " +
                             "Startbildschirm nach oben wischen) eine App lange drücken → „Zum Startbildschirm“.",
                     )
@@ -361,6 +388,7 @@ private fun TidyScreen(viewModel: LauncherSettingsViewModel, onBack: () -> Unit,
                     else -> {
                         Text("• ${p.foldersCreated} neue Ordner")
                         Text("• ${p.appsMoved} Apps werden in Ordner verschoben")
+                        if (p.appsAddedFromDrawer > 0) Text("• ${p.appsAddedFromDrawer} Apps kommen aus dem App-Drawer in eigene Ordner")
                         if (options.archiveUnused) {
                             if (options.archiveMode == ArchiveMode.FOLDER) Text("• ${p.appsArchived} Apps ins Archiv")
                             else Text("• ${p.appsRemoved} Apps vom Startbildschirm entfernt")
@@ -401,6 +429,151 @@ private fun TidyScreen(viewModel: LauncherSettingsViewModel, onBack: () -> Unit,
             }
         }
     }
+}
+
+// ------------------------------------------------------------------------------------- Eigene Ordner
+
+@Composable
+private fun CustomFoldersSection(viewModel: LauncherSettingsViewModel) {
+    val folders by viewModel.customFolders.collectAsStateWithLifecycle()
+    val apps by viewModel.installedApps.collectAsStateWithLifecycle()
+    val sideloaded by viewModel.sideloadedPackages.collectAsStateWithLifecycle()
+    var editing by remember { mutableStateOf<CustomFolderRule?>(null) }
+
+    SectionCard {
+        Text("Eigene Ordner", style = MaterialTheme.typography.titleSmall)
+        Text(
+            "Eigene Regeln gehen vor den Kategorien: Passende Apps landen immer in deinem Ordner – auf Wunsch auch " +
+                "Apps, die bisher nur im App-Drawer liegen – und werden nie archiviert. Gilt für alle Profile.",
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(vertical = 4.dp),
+        )
+        folders.forEach { folder ->
+            val count = apps.count { app ->
+                folder.matches(app.key, AppMeta(app.label, app.category, null, app.packageName, app.packageName in sideloaded))
+            }
+            Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                Switch(checked = folder.enabled, onCheckedChange = { viewModel.saveCustomFolder(folder.copy(enabled = it)) })
+                Column(Modifier.weight(1f).padding(horizontal = 12.dp).clickable { editing = folder }) {
+                    Text(folder.title, style = MaterialTheme.typography.titleSmall)
+                    Text(describeFolder(folder, count), style = MaterialTheme.typography.bodySmall)
+                }
+                IconButton(onClick = { editing = folder }) { Icon(Icons.Default.Edit, contentDescription = "Bearbeiten") }
+                IconButton(onClick = { viewModel.deleteCustomFolder(folder.id) }) {
+                    Icon(Icons.Default.Delete, contentDescription = "Löschen")
+                }
+            }
+        }
+        OutlinedButton(onClick = { editing = CustomFolderRule(title = "") }, modifier = Modifier.padding(top = 4.dp)) {
+            Icon(Icons.Default.CreateNewFolder, contentDescription = null)
+            Text("Eigenen Ordner anlegen", Modifier.padding(start = 8.dp))
+        }
+    }
+
+    editing?.let { rule ->
+        CustomFolderDialog(
+            initial = rule,
+            apps = apps,
+            sideloaded = sideloaded,
+            onDismiss = { editing = null },
+            onSave = {
+                viewModel.saveCustomFolder(it)
+                editing = null
+            },
+        )
+    }
+}
+
+private fun describeFolder(folder: CustomFolderRule, matching: Int): String = buildList {
+    add("$matching ${if (matching == 1) "App" else "Apps"}")
+    if (folder.componentKeys.isNotEmpty()) add("${folder.componentKeys.size} ausgewählt")
+    if (folder.packagePrefixes.isNotEmpty()) add("Paket: ${folder.packagePrefixes.joinToString()}")
+    if (folder.includeSideloaded) add("selbst installierte")
+}.joinToString(" · ")
+
+@Composable
+private fun CustomFolderDialog(
+    initial: CustomFolderRule,
+    apps: List<LauncherApp>,
+    sideloaded: Set<String>,
+    onDismiss: () -> Unit,
+    onSave: (CustomFolderRule) -> Unit,
+) {
+    var title by remember { mutableStateOf(initial.title) }
+    var prefixes by remember { mutableStateOf(initial.packagePrefixes.joinToString(", ")) }
+    var includeSideloaded by remember { mutableStateOf(initial.includeSideloaded) }
+    var includeDrawer by remember { mutableStateOf(initial.includeDrawerApps) }
+    var selected by remember { mutableStateOf(initial.componentKeys) }
+    var query by remember { mutableStateOf("") }
+
+    fun current() = initial.copy(
+        title = title.trim(),
+        componentKeys = selected,
+        packagePrefixes = prefixes.split(',').map { it.trim() }.filter { it.isNotEmpty() },
+        includeSideloaded = includeSideloaded,
+        includeDrawerApps = includeDrawer,
+    )
+    val rule = current()
+    // Apps, die über Paketname oder „selbst installiert“ ohnehin passen, sind vorab markiert.
+    fun matchesAutomatically(app: LauncherApp) = rule.copy(componentKeys = emptySet())
+        .matches(app.key, AppMeta(app.label, app.category, null, app.packageName, app.packageName in sideloaded))
+    val visible = apps.filter {
+        query.isBlank() || it.label.contains(query, ignoreCase = true) || it.packageName.contains(query, ignoreCase = true)
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (initial.id == 0L) "Eigener Ordner" else "Ordner bearbeiten") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Ordnername") }, singleLine = true)
+                SwitchLine("Selbst installierte Apps", "Alle per APK-Datei oder USB installierten Apps", includeSideloaded) {
+                    includeSideloaded = it
+                }
+                OutlinedTextField(
+                    value = prefixes,
+                    onValueChange = { prefixes = it },
+                    label = { Text("Paketname beginnt mit (optional)") },
+                    supportingText = { Text("z. B. de.meinname. – erfasst auch später installierte Apps; mehrere mit Komma") },
+                    singleLine = true,
+                )
+                SwitchLine("Auch Apps aus dem App-Drawer", "Sonst nur Apps, die schon auf dem Startbildschirm liegen", includeDrawer) {
+                    includeDrawer = it
+                }
+                Text(
+                    "Apps auswählen (${apps.count { it.key in selected || matchesAutomatically(it) }} im Ordner)",
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+                OutlinedTextField(value = query, onValueChange = { query = it }, label = { Text("Suchen") }, singleLine = true)
+                LazyColumn(Modifier.heightIn(max = 280.dp)) {
+                    items(visible, key = { it.key }) { app ->
+                        val auto = matchesAutomatically(app)
+                        Row(
+                            Modifier.fillMaxWidth().clickable(enabled = !auto) {
+                                selected = if (app.key in selected) selected - app.key else selected + app.key
+                            },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Checkbox(
+                                checked = auto || app.key in selected,
+                                enabled = !auto,
+                                onCheckedChange = { on -> selected = if (on) selected + app.key else selected - app.key },
+                            )
+                            Column {
+                                Text(app.label, style = MaterialTheme.typography.bodyMedium)
+                                Text(app.packageName, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = title.isNotBlank(), onClick = { onSave(current()) }) { Text("Speichern") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Abbrechen") } },
+    )
 }
 
 // ------------------------------------------------------------------------------------- Profile
