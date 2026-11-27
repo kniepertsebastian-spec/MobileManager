@@ -12,7 +12,9 @@ import app.mobilemanager.launcher.data.LauncherContextRepository
 import app.mobilemanager.launcher.data.LauncherHostBridge
 import app.mobilemanager.launcher.data.LauncherLayoutRepository
 import app.mobilemanager.launcher.data.LauncherPreferences
+import app.mobilemanager.launcher.data.LauncherShortcut
 import app.mobilemanager.launcher.data.LauncherSettings
+import app.mobilemanager.launcher.domain.AppSuggestions
 import app.mobilemanager.launcher.domain.Container
 import app.mobilemanager.launcher.domain.LauncherProfile
 import app.mobilemanager.launcher.domain.LayoutItem
@@ -60,6 +62,9 @@ data class LauncherUiState(
     val folders: List<HomeCell> = emptyList(),
     val drawerApps: List<LauncherApp> = emptyList(),
     val hiddenCount: Int = 0,
+    /** App-Vorschläge oben im Drawer (häufig und zuletzt genutzt). */
+    val suggestions: List<LauncherApp> = emptyList(),
+    val themedIcons: Boolean = false,
 ) {
     val pageSize: Int get() = columns * rows
 }
@@ -87,7 +92,8 @@ class LauncherViewModel @Inject constructor(
         prefs.settings,
         active.filterNotNull(),
         layout.profiles,
-    ) { apps, settings, activeProfile, profiles -> Inputs(apps, settings, activeProfile, profiles) }
+        prefs.launchHistory,
+    ) { apps, settings, activeProfile, profiles, history -> Inputs(apps, settings, activeProfile, profiles, history) }
         .flatMapLatest { input ->
             val profile = input.profiles.firstOrNull { it.id == input.active.profileId } ?: input.profiles.firstOrNull()
             layout.items(profile?.id ?: -1L).map { items -> buildState(input, profile, items) }
@@ -100,6 +106,7 @@ class LauncherViewModel @Inject constructor(
         val settings: LauncherSettings,
         val active: ActiveProfile,
         val profiles: List<LauncherProfile>,
+        val history: List<String>,
     )
 
     init {
@@ -136,6 +143,7 @@ class LauncherViewModel @Inject constructor(
         val pages = (0 until pageCount).map { page -> homeCells.filter { it.item.page == page } }
         val dock = if (large) emptyList() else items.filter { it.container == Container.DOCK }.sortedBy { it.position }.mapNotNull(::cellOf)
 
+        val drawerApps = input.apps.filter { it.category !in hidden }
         return LauncherUiState(
             loading = false,
             profile = profile,
@@ -148,8 +156,12 @@ class LauncherViewModel @Inject constructor(
             pages = pages,
             dock = dock,
             folders = homeCells.filter { it.isFolder },
-            drawerApps = input.apps.filter { it.category !in hidden },
+            drawerApps = drawerApps,
             hiddenCount = input.apps.count { it.category in hidden },
+            suggestions = drawerApps.associateBy { it.key }.let { byKey ->
+                AppSuggestions.rank(input.history, byKey.keys, columns).mapNotNull(byKey::get)
+            },
+            themedIcons = input.settings.themedIcons,
         )
     }
 
@@ -157,11 +169,19 @@ class LauncherViewModel @Inject constructor(
         _homeEvents.tryEmit(Unit)
     }
 
-    fun cachedIcon(key: String, sizePx: Int): ImageBitmap? = appsRepository.cachedIcon(key, sizePx)
+    fun cachedIcon(key: String, sizePx: Int): ImageBitmap? = appsRepository.cachedIcon(key, sizePx, state.value.themedIcons)
 
-    suspend fun icon(key: String, sizePx: Int): ImageBitmap? = appsRepository.icon(key, sizePx)
+    suspend fun icon(key: String, sizePx: Int): ImageBitmap? = appsRepository.icon(key, sizePx, state.value.themedIcons)
 
-    fun launch(app: LauncherApp, bounds: Rect?) = appsRepository.launch(app, bounds)
+    fun launch(app: LauncherApp, bounds: Rect?): Boolean {
+        val started = appsRepository.launch(app, bounds)
+        if (started) viewModelScope.launch { prefs.recordLaunch(app.key) }
+        return started
+    }
+
+    suspend fun shortcuts(app: LauncherApp, iconSizePx: Int): List<LauncherShortcut> = appsRepository.shortcuts(app, iconSizePx)
+
+    fun startShortcut(shortcut: LauncherShortcut, bounds: Rect?) = appsRepository.startShortcut(shortcut, bounds)
 
     fun openAppInfo(app: LauncherApp) = appsRepository.openAppInfo(app)
 

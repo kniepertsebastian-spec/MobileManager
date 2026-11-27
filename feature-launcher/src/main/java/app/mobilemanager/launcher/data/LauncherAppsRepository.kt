@@ -6,7 +6,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.LauncherActivityInfo
 import android.content.pm.LauncherApps
+import android.content.pm.ShortcutInfo
+import android.content.res.Configuration
 import android.graphics.Rect
+import android.graphics.drawable.AdaptiveIconDrawable
+import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -17,6 +21,7 @@ import android.util.LruCache
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.core.graphics.drawable.toBitmap
+import androidx.core.graphics.drawable.toDrawable
 import app.mobilemanager.launcher.domain.AppCategorizer
 import app.mobilemanager.launcher.domain.AppCategory
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -43,6 +48,9 @@ data class LauncherApp(
     val category: AppCategory,
     val isWorkProfile: Boolean,
 )
+
+/** App-Shortcut für das Long-Press-Menü (wie im Pixel Launcher). */
+data class LauncherShortcut(val info: ShortcutInfo, val label: String, val icon: ImageBitmap?)
 
 /**
  * Meilenstein 3.1.2: App-Liste über die `LauncherApps`-API (Arbeitsprofile, adaptive Icons mit Badge).
@@ -132,16 +140,77 @@ class LauncherAppsRepository @Inject constructor(
 
     val mainUserSuffix: String get() = "#${userManager.getSerialNumberForUser(Process.myUserHandle())}"
 
-    fun cachedIcon(key: String, sizePx: Int): ImageBitmap? = iconCache.get("$key@$sizePx")
+    private fun cacheKey(key: String, sizePx: Int, themed: Boolean) =
+        if (themed) "$key@$sizePx#${themedColors().first}" else "$key@$sizePx"
 
-    suspend fun icon(key: String, sizePx: Int): ImageBitmap? {
-        cachedIcon(key, sizePx)?.let { return it }
+    fun cachedIcon(key: String, sizePx: Int, themed: Boolean = false): ImageBitmap? = iconCache.get(cacheKey(key, sizePx, themed))
+
+    /**
+     * Lädt das Icon. Mit [themed] wird – wie bei den Pixel-„Designsymbolen“ – die einfarbige Ebene des
+     * adaptiven Icons in den Material-You-Farben gezeichnet; Apps ohne diese Ebene behalten ihr Icon.
+     */
+    suspend fun icon(key: String, sizePx: Int, themed: Boolean = false): ImageBitmap? {
+        cachedIcon(key, sizePx, themed)?.let { return it }
         val info = infos[key] ?: return null
+        val cacheKey = cacheKey(key, sizePx, themed)
         return withContext(Dispatchers.IO) {
             runCatching {
-                info.getBadgedIcon(0).toBitmap(sizePx, sizePx).asImageBitmap()
-            }.getOrNull()?.also { iconCache.put("$key@$sizePx", it) }
+                val themedIcon = if (themed && info.user == Process.myUserHandle()) themedIcon(info.getIcon(0)) else null
+                (themedIcon ?: info.getBadgedIcon(0)).toBitmap(sizePx, sizePx).asImageBitmap()
+            }.getOrNull()?.also { iconCache.put(cacheKey, it) }
         }
+    }
+
+    /** Hintergrund-/Vordergrundfarbe der Designsymbole wie beim Pixel Launcher (hell/dunkel). */
+    private fun themedColors(): Pair<Int, Int> {
+        val dark = (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        return if (dark) {
+            context.getColor(android.R.color.system_neutral1_800) to context.getColor(android.R.color.system_accent1_100)
+        } else {
+            context.getColor(android.R.color.system_accent1_100) to context.getColor(android.R.color.system_neutral2_700)
+        }
+    }
+
+    private fun themedIcon(drawable: Drawable): Drawable? {
+        val adaptive = drawable as? AdaptiveIconDrawable ?: return null
+        val mono = adaptive.monochrome?.constantState?.newDrawable(context.resources)?.mutate() ?: return null
+        val (background, foreground) = themedColors()
+        mono.setTint(foreground)
+        return AdaptiveIconDrawable(background.toDrawable(), mono)
+    }
+
+    /** Statische und dynamische Shortcuts einer App – nur möglich, solange wir der Standard-Launcher sind. */
+    suspend fun shortcuts(app: LauncherApp, iconSizePx: Int): List<LauncherShortcut> = withContext(Dispatchers.IO) {
+        runCatching {
+            if (!launcherApps.hasShortcutHostPermission()) return@runCatching emptyList()
+            val query = LauncherApps.ShortcutQuery()
+                .setPackage(app.packageName)
+                .setActivity(app.component)
+                .setQueryFlags(LauncherApps.ShortcutQuery.FLAG_MATCH_MANIFEST or LauncherApps.ShortcutQuery.FLAG_MATCH_DYNAMIC)
+            launcherApps.getShortcuts(query, app.user).orEmpty()
+                .filter { it.isEnabled }
+                .sortedWith(compareBy<ShortcutInfo>({ !it.isDeclaredInManifest }, { it.rank }))
+                .take(MAX_SHORTCUTS)
+                .map { info ->
+                    val icon = runCatching {
+                        launcherApps.getShortcutIconDrawable(info, context.resources.displayMetrics.densityDpi)
+                            ?.toBitmap(iconSizePx, iconSizePx)?.asImageBitmap()
+                    }.getOrNull()
+                    LauncherShortcut(info, (info.shortLabel ?: info.longLabel ?: "").toString(), icon)
+                }
+                .filter { it.label.isNotBlank() }
+        }.getOrDefault(emptyList())
+    }
+
+    fun startShortcut(shortcut: LauncherShortcut, bounds: Rect?): Boolean = try {
+        launcherApps.startShortcut(shortcut.info, bounds, null)
+        true
+    } catch (_: ActivityNotFoundException) {
+        false
+    } catch (_: IllegalStateException) {
+        false
+    } catch (_: SecurityException) {
+        false
     }
 
     fun launch(app: LauncherApp, bounds: Rect?): Boolean = try {
@@ -161,4 +230,8 @@ class LauncherAppsRepository @Inject constructor(
     fun uninstallIntent(app: LauncherApp): Intent? =
         if (app.isWorkProfile) null
         else Intent(Intent.ACTION_DELETE, Uri.fromParts("package", app.packageName, null)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+    private companion object {
+        const val MAX_SHORTCUTS = 4
+    }
 }

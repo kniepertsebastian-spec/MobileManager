@@ -3,6 +3,7 @@ package app.mobilemanager.launcher
 import app.mobilemanager.launcher.domain.AppCategorizer
 import app.mobilemanager.launcher.domain.AppCategory
 import app.mobilemanager.launcher.domain.AppMeta
+import app.mobilemanager.launcher.domain.AppSuggestions
 import app.mobilemanager.launcher.domain.ArchiveMode
 import app.mobilemanager.launcher.domain.Container
 import app.mobilemanager.launcher.domain.CustomFolderRule
@@ -202,5 +203,15 @@ class LauncherDomainTest {
         assertTrue(ProfileResolver.inTimeWindow(night, friday23))
         assertTrue(ProfileResolver.inTimeWindow(night, friday23.plusHours(5))) // Samstag 04:00 gehört zur Freitagnacht
         assertFalse(ProfileResolver.inTimeWindow(night, friday23.plusDays(1))) // Samstag 23:00
+    }
+
+    @Test
+    fun `suggestions rank frequent and recent apps, skip unavailable ones`() {
+        val history = listOf("b", "a", "gone", "a", "c", "a", "b", "d")
+        assertEquals(listOf("a", "b", "c"), AppSuggestions.rank(history, setOf("a", "b", "c", "d"), 3))
+        // Gleich oft genutzt: der zuletzt gestartete gewinnt.
+        assertEquals(listOf("x", "y"), AppSuggestions.rank(listOf("x", "y"), setOf("x", "y"), 5))
+        assertTrue(AppSuggestions.rank(emptyList(), setOf("a"), 5).isEmpty())
+        assertTrue(AppSuggestions.rank(listOf("gone"), setOf("a"), 5).isEmpty())
     }
 }

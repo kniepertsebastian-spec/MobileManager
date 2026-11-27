@@ -263,6 +263,11 @@ private fun OverviewScreen(
                 )
                 SwitchLine("App-Namen anzeigen", null, settings.showLabels) { v -> viewModel.updateSettings { it.copy(showLabels = v) } }
                 SwitchLine(
+                    "Designsymbole",
+                    "Wie beim Pixel: einfarbige Icons in den Farben deines Hintergrunds (nur Apps, die das unterstützen).",
+                    settings.themedIcons,
+                ) { v -> viewModel.updateSettings { it.copy(themedIcons = v) } }
+                SwitchLine(
                     "Automatischer Profilwechsel",
                     "Wechselt je nach Bluetooth-Gerät, WLAN oder Uhrzeit das Profil und danach wieder zurück.",
                     settings.autoSwitch,

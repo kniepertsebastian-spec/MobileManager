@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
@@ -23,6 +24,8 @@ data class LauncherSettings(
     val showLabels: Boolean = true,
     val autoSwitch: Boolean = true,
     val initialized: Boolean = false,
+    /** Pixel-„Designsymbole“: einfarbige, an Material You angepasste Icons. */
+    val themedIcons: Boolean = false,
 ) {
     val pageSize: Int get() = columns * rows
 }
@@ -37,6 +40,8 @@ class LauncherPreferences @Inject constructor(@ApplicationContext private val co
         val SHOW_LABELS = booleanPreferencesKey("show_labels")
         val AUTO_SWITCH = booleanPreferencesKey("auto_switch")
         val INITIALIZED = booleanPreferencesKey("initialized")
+        val THEMED_ICONS = booleanPreferencesKey("themed_icons")
+        val LAUNCH_HISTORY = stringPreferencesKey("launch_history")
     }
 
     val settings: Flow<LauncherSettings> = context.launcherStore.data.map(::fromPrefs)
@@ -52,6 +57,19 @@ class LauncherPreferences @Inject constructor(@ApplicationContext private val co
             p[Keys.SHOW_LABELS] = next.showLabels
             p[Keys.AUTO_SWITCH] = next.autoSwitch
             p[Keys.INITIALIZED] = next.initialized
+            p[Keys.THEMED_ICONS] = next.themedIcons
+        }
+    }
+
+    /** Zuletzt gestartete Apps (neueste zuerst) – Grundlage der App-Vorschläge im Drawer. Bleibt lokal. */
+    val launchHistory: Flow<List<String>> = context.launcherStore.data.map { p ->
+        p[Keys.LAUNCH_HISTORY]?.split('\n')?.filter { it.isNotBlank() }.orEmpty()
+    }
+
+    suspend fun recordLaunch(key: String) {
+        context.launcherStore.edit { p ->
+            val history = p[Keys.LAUNCH_HISTORY]?.split('\n')?.filter { it.isNotBlank() }.orEmpty()
+            p[Keys.LAUNCH_HISTORY] = (listOf(key) + history).take(MAX_HISTORY).joinToString("\n")
         }
     }
 
@@ -62,5 +80,10 @@ class LauncherPreferences @Inject constructor(@ApplicationContext private val co
         showLabels = p[Keys.SHOW_LABELS] ?: true,
         autoSwitch = p[Keys.AUTO_SWITCH] ?: true,
         initialized = p[Keys.INITIALIZED] ?: false,
+        themedIcons = p[Keys.THEMED_ICONS] ?: false,
     )
+
+    private companion object {
+        const val MAX_HISTORY = 60
+    }
 }
