@@ -35,9 +35,13 @@
 -dontwarn org.graalvm.nativeimage.**
 
 # --- Gesichtserkennung (Cleaner) ----------------------------------------------
-# ML Kit lädt Detektor-Implementierungen über Komponenten-Registrare.
--keep class com.google.mlkit.vision.face.** { *; }
--keep class com.google.android.gms.internal.mlkit_vision_face** { *; }
+# ML Kit lädt seine Komponenten über Registrare, die nur als Manifest-<meta-data>-Werte genannt werden –
+# R8 sieht diese Verweise nicht. Ohne diese Regeln fehlt z. B. der ExecutorSelector aus
+# CommonComponentRegistrar und die App stürzt schon beim Start (MlKitInitProvider) ab.
+-keep class com.google.mlkit.** { *; }
+-keep class com.google.android.gms.internal.mlkit_** { *; }
+-keep class * implements com.google.firebase.components.ComponentRegistrar { *; }
+-keep class com.google.firebase.components.** { *; }
 
 # --- Eigene Modelle -----------------------------------------------------------
 # Enums werden per Name in Room/DataStore/Backups gespeichert.
