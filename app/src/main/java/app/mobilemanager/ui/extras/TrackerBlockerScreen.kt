@@ -197,6 +197,9 @@ fun TrackerBlockerScreen(
                     }
                 }
 
+                // Phase 4.1: Blocklisten-Abos, DNS-over-HTTPS, Always-on-Prüfung
+                app.mobilemanager.ui.network.TrackerAdvancedCard()
+
                 SectionCard {
                     Row {
                         Stat("Heute", blockedToday, Modifier.weight(1f))

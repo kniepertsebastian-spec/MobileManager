@@ -74,6 +74,7 @@ class NotificationArchiveService : NotificationListenerService() {
 
     @Inject lateinit var dao: NotificationEntryDao
     @Inject lateinit var settings: GuardSettingsRepository
+    @Inject lateinit var locker: app.mobilemanager.data.locker.LockerRepository
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -99,8 +100,12 @@ class NotificationArchiveService : NotificationListenerService() {
                 // Sofort stumm abbrechen; die Meldung erscheint gesammelt zur Digest-Uhrzeit.
                 runCatching { cancelNotification(sbn.key) }
             }
+            // Phase 4.3: Benachrichtigungen gesperrter Apps ausblenden – lesbar bleiben sie im (gesperrten) Archiv.
+            val lock = locker.current()
+            val hidden = lock.enabled && lock.hideNotifications && sbn.packageName in lock.packages
+            if (hidden) runCatching { cancelNotification(sbn.key) }
             if (isGroupSummary || (title.isBlank() && text.isBlank())) return@launch
-            if (!s.notificationArchiveEnabled && !isDigest) return@launch
+            if (!s.notificationArchiveEnabled && !isDigest && !hidden) return@launch
             dao.insert(
                 NotificationEntryEntity(
                     notificationKey = sbn.key,

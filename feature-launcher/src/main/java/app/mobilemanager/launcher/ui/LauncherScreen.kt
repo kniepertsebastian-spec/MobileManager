@@ -3,6 +3,18 @@ package app.mobilemanager.launcher.ui
 import android.app.SearchManager
 import android.content.Intent
 import android.graphics.Rect
+import android.hardware.biometrics.BiometricManager
+import android.hardware.biometrics.BiometricPrompt
+import android.os.CancellationSignal
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
+import app.mobilemanager.launcher.data.GestureAction
+import app.mobilemanager.launcher.data.QuickAction
 import android.speech.RecognizerIntent
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
@@ -41,7 +53,8 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Sort
@@ -163,6 +176,7 @@ fun LauncherScreen(
     var profileSheet by remember { mutableStateOf(false) }
     var moveTarget by remember { mutableStateOf<LayoutItem?>(null) }
     var focusSearch by remember { mutableStateOf(false) }
+    var vaultOpen by remember { mutableStateOf(false) }
     val pagerState = rememberPagerState { state.pages.size }
     val scope = rememberCoroutineScope()
     val wallpaperText = rememberWallpaperText()
@@ -195,6 +209,21 @@ fun LauncherScreen(
     fun openDrawer(withSearch: Boolean) {
         focusSearch = withSearch
         settle(1f)
+    }
+
+    // Phase 4.7: frei belegbare Gesten (Doppeltippen, Wischen nach unten).
+    fun runGesture(action: GestureAction) {
+        when {
+            action == GestureAction.SEARCH -> openDrawer(withSearch = true)
+            !viewModel.performGesture(action) ->
+                onMessage("Für diese Geste die Bedienungshilfe „MobileManager – App-Sperre, Fokus-Bremse & Gesten“ aktivieren")
+        }
+    }
+    val swipeDownAction by rememberUpdatedState(state.swipeDownAction)
+    val launcherActivity = LocalActivity.current
+    fun openVault() {
+        val activity = launcherActivity ?: return
+        authenticate(activity, "Tresor öffnen") { vaultOpen = true }
     }
 
     LaunchedEffect(Unit) {
@@ -249,15 +278,22 @@ fun LauncherScreen(
                     }
                     .pointerInput(Unit) {
                         val tracker = VelocityTracker()
+                        var pulledDown = 0f
                         detectVerticalDragGestures(
                             onDragStart = {
                                 tracker.resetTracking()
                                 focusSearch = false
+                                pulledDown = 0f
                             },
-                            onDragEnd = { release(tracker.calculateVelocity().y) },
+                            onDragEnd = {
+                                val swipeDown = pulledDown > SWIPE_DOWN_THRESHOLD_PX && progress == 0f
+                                release(tracker.calculateVelocity().y)
+                                if (swipeDown && swipeDownAction != GestureAction.NONE) runGesture(swipeDownAction)
+                            },
                             onDragCancel = { release(0f) },
                             onVerticalDrag = { change, dy ->
                                 tracker.addPosition(change.uptimeMillis, change.position)
+                                if (progress == 0f && dy > 0f) pulledDown += dy else if (dy < 0f) pulledDown = 0f
                                 dragBy(dy)
                                 change.consume()
                             },
@@ -289,24 +325,35 @@ fun LauncherScreen(
                                 alpha = (1f - abs(pagerState.currentPage + pagerState.currentPageOffsetFraction)).coerceIn(0f, 1f)
                             },
                     )
-                    HorizontalPager(
-                        state = pagerState,
-                        modifier = Modifier.weight(1f).fillMaxWidth(),
-                        key = { it },
-                    ) { page ->
-                        HomePage(
-                            cells = state.pages.getOrElse(page) { emptyList() },
+                    if (state.textOnly) {
+                        TextHome(
                             state = state,
-                            viewModel = viewModel,
                             actions = actions,
                             homeMenu = homeMenu,
-                            onOpenFolder = { openFolderId = it.id },
-                            onMoveToFolder = { moveTarget = it },
+                            onDoubleTap = { runGesture(state.doubleTapAction) },
+                            modifier = Modifier.weight(1f).fillMaxWidth(),
                         )
-                    }
-                    if (state.pages.size > 1) PageIndicator(state.pages.size, pagerState.currentPage)
-                    if (state.dock.isNotEmpty()) {
-                        Dock(state.dock, viewModel, actions, onOpenFolder = { openFolderId = it.id })
+                    } else {
+                        HorizontalPager(
+                            state = pagerState,
+                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                            key = { it },
+                        ) { page ->
+                            HomePage(
+                                cells = state.pages.getOrElse(page) { emptyList() },
+                                state = state,
+                                viewModel = viewModel,
+                                actions = actions,
+                                homeMenu = homeMenu,
+                                onOpenFolder = { openFolderId = it.id },
+                                onMoveToFolder = { moveTarget = it },
+                                onDoubleTap = { runGesture(state.doubleTapAction) },
+                            )
+                        }
+                        if (state.pages.size > 1) PageIndicator(state.pages.size, pagerState.currentPage)
+                        if (state.dock.isNotEmpty()) {
+                            Dock(state.dock, viewModel, actions, onOpenFolder = { openFolderId = it.id })
+                        }
                     }
                     SearchPill(
                         onSearch = { openDrawer(withSearch = true) },
@@ -334,6 +381,19 @@ fun LauncherScreen(
                         onMessage("${app.label} zum Startbildschirm hinzugefügt")
                     },
                     onAddToDock = { app -> viewModel.addToDock(app) { onMessage("Das Dock ist voll (max. 5 Apps)") } },
+                    onAddToVault = { app ->
+                        viewModel.addToVault(app)
+                        onMessage("${app.label} liegt jetzt im Tresor – Suche „tresor“ öffnet ihn")
+                    },
+                    onOpenVault = ::openVault,
+                    onQuickAction = { action ->
+                        settle(0f)
+                        if (action.intent != null) onStartIntent(action.intent) else viewModel.runQuickAction(action, onMessage)
+                    },
+                    onStartIntent = { intent ->
+                        onStartIntent(intent)
+                        settle(0f)
+                    },
                     modifier = Modifier.graphicsLayer {
                         translationY = (1f - progress) * size.height
                         alpha = (progress * 3f).coerceAtMost(1f)
@@ -369,6 +429,35 @@ fun LauncherScreen(
                 moveTarget = null
             },
         )
+    }
+
+    if (vaultOpen) {
+        ModalBottomSheet(onDismissRequest = { vaultOpen = false }) {
+            Text("Tresor", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
+            if (state.vaultApps.isEmpty()) {
+                Text(
+                    "Leer. Apps im Drawer lange drücken → „In den Tresor“.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+                )
+            }
+            state.vaultApps.forEach { app ->
+                ListItem(
+                    leadingContent = { AppIconImage(app.key, 40.dp, viewModel) },
+                    trailingContent = {
+                        IconButton(onClick = { viewModel.removeFromVault(app) }) {
+                            Icon(Icons.Default.LockOpen, contentDescription = "Aus dem Tresor nehmen")
+                        }
+                    },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    modifier = Modifier.clickable {
+                        vaultOpen = false
+                        actions.launch(app, null)
+                    },
+                ) { Text(app.label) }
+            }
+            Spacer(Modifier.height(24.dp))
+        }
     }
 
     if (profileSheet) {
@@ -417,6 +506,7 @@ private fun HomePage(
     homeMenu: List<MenuAction>,
     onOpenFolder: (LayoutItem) -> Unit,
     onMoveToFolder: (LayoutItem) -> Unit,
+    onDoubleTap: () -> Unit,
 ) {
     val haptic = LocalHapticFeedback.current
     val byPosition = remember(cells) { cells.associateBy { it.item.position } }
@@ -427,10 +517,13 @@ private fun HomePage(
             Modifier
                 .fillMaxSize()
                 .pointerInput(Unit) {
-                    detectTapGestures(onLongPress = { at ->
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        menuAt = at
-                    })
+                    detectTapGestures(
+                        onDoubleTap = { onDoubleTap() },
+                        onLongPress = { at ->
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            menuAt = at
+                        },
+                    )
                 }
                 .padding(horizontal = 8.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.SpaceEvenly,
@@ -558,13 +651,19 @@ private fun PageIndicator(count: Int, current: Int) {
 @Composable
 private fun AppIconImage(key: String, size: Dp, viewModel: LauncherViewModel) {
     val px = with(LocalDensity.current) { size.roundToPx() }
-    val themed = viewModel.state.collectAsStateWithLifecycle().value.themedIcons
+    val uiState = viewModel.state.collectAsStateWithLifecycle().value
+    val themed = uiState.themedIcons
     val icon by produceState(initialValue = viewModel.cachedIcon(key, px), key, px, themed) {
         value = viewModel.cachedIcon(key, px) ?: viewModel.icon(key, px)
     }
     val bitmap = icon
     if (bitmap != null) {
-        Image(bitmap, contentDescription = null, modifier = Modifier.size(size))
+        Image(
+            bitmap,
+            contentDescription = null,
+            modifier = Modifier.size(size),
+            colorFilter = if (uiState.grayscale) GRAYSCALE_FILTER else null,
+        )
     } else {
         Box(Modifier.size(size).clip(CircleShape).background(Color.White.copy(alpha = 0.2f)))
     }
@@ -746,9 +845,14 @@ private fun AppDrawer(
     onWebSearch: (String) -> Unit,
     onAddToHome: (LauncherApp) -> Unit,
     onAddToDock: (LauncherApp) -> Unit,
+    onAddToVault: (LauncherApp) -> Unit,
+    onOpenVault: () -> Unit,
+    onQuickAction: (QuickAction) -> Unit,
+    onStartIntent: (Intent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var query by rememberSaveable { mutableStateOf("") }
+    val queryState = rememberTextFieldState()
+    val query = queryState.text.toString()
     val trimmed = query.trim()
     val filtered = remember(state.drawerApps, trimmed) {
         if (trimmed.isEmpty()) state.drawerApps
@@ -802,8 +906,14 @@ private fun AppDrawer(
         add(MenuAction("Zum Startbildschirm", Icons.Default.Home) { onAddToHome(app) })
         if (!state.largeIcons) add(MenuAction("Ins Dock", Icons.Default.ViewWeek) { onAddToDock(app) })
         add(MenuAction("App-Info", Icons.Default.Info) { actions.info(app) })
+        add(MenuAction("In den Tresor", Icons.Default.Lock) { onAddToVault(app) })
         if (!app.isWorkProfile) add(MenuAction("Deinstallieren", Icons.Default.Delete) { actions.uninstall(app) })
     }
+
+    // Phase 4.7: Universal-Suche – Aktionen der Haupt-App und Android-Einstellungen.
+    val quickActions = remember { viewModel.quickActions() }
+    val actionMatches = remember(trimmed) { UniversalSearch.matchActions(quickActions, trimmed) }
+    val settingsMatches = remember(trimmed) { UniversalSearch.matchSettings(trimmed) }
 
     @Composable
     fun DrawerTile(app: LauncherApp) {
@@ -860,13 +970,12 @@ private fun AppDrawer(
                                 Text("Apps und Web durchsuchen", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             BasicTextField(
-                                value = query,
-                                onValueChange = { query = it },
-                                singleLine = true,
+                                state = queryState,
+                                lineLimits = TextFieldLineLimits.SingleLine,
                                 textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
                                 cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                                keyboardActions = KeyboardActions(onSearch = {
+                                onKeyboardAction = {
                                     val first = filtered.firstOrNull()
                                     when {
                                         trimmed.isEmpty() -> Unit
@@ -876,12 +985,12 @@ private fun AppDrawer(
                                         }
                                         else -> onWebSearch(trimmed)
                                     }
-                                }),
+                                },
                                 modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
                             )
                         }
                         if (query.isNotEmpty()) {
-                            IconButton(onClick = { query = "" }) { Icon(Icons.Default.Close, contentDescription = "Suche löschen") }
+                            IconButton(onClick = { queryState.edit { replace(0, length, "") } }) { Icon(Icons.Default.Close, contentDescription = "Suche löschen") }
                         } else {
                             Spacer(Modifier.width(12.dp))
                         }
@@ -912,6 +1021,21 @@ private fun AppDrawer(
                 }
                 items(filtered, key = { it.key }) { app -> DrawerTile(app) }
                 if (trimmed.isNotEmpty()) {
+                    if (trimmed.equals(VAULT_KEYWORD, ignoreCase = true)) {
+                        item(key = "vault", span = fullSpan) {
+                            SearchResult(Icons.Default.Lock, "Tresor öffnen") { onOpenVault() }
+                        }
+                    }
+                    actionMatches.forEach { action ->
+                        item(key = "action:" + action.id, span = fullSpan) {
+                            SearchResult(Icons.Default.Bolt, action.label) { onQuickAction(action) }
+                        }
+                    }
+                    settingsMatches.forEach { entry ->
+                        item(key = "setting:" + entry.label, span = fullSpan) {
+                            SearchResult(Icons.Default.Settings, entry.label, "Einstellungen") { onStartIntent(Intent(entry.action)) }
+                        }
+                    }
                     if (filtered.isEmpty()) {
                         item(key = "no-apps", span = fullSpan) {
                             Text(
@@ -934,6 +1058,84 @@ private fun AppDrawer(
         }
     }
 }
+
+@Composable
+private fun SearchResult(icon: ImageVector, title: String, subtitle: String? = null, onClick: () -> Unit) {
+    ListItem(
+        leadingContent = { Icon(icon, contentDescription = null) },
+        supportingContent = subtitle?.let { { Text(it) } },
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        modifier = Modifier.clip(RoundedCornerShape(16.dp)).clickable(onClick = onClick),
+    ) { Text(title) }
+}
+
+/** Phase 4.7: ablenkungsfreie Textliste statt Icon-Raster (Homescreen- und Dock-Apps). */
+@Composable
+private fun TextHome(
+    state: LauncherUiState,
+    actions: CellActions,
+    homeMenu: List<MenuAction>,
+    onDoubleTap: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val haptic = LocalHapticFeedback.current
+    var menuAt by remember { mutableStateOf<Offset?>(null) }
+    val apps = remember(state.pages, state.dock) {
+        (state.pages.flatten() + state.dock).flatMap { cell -> cell.app?.let(::listOf) ?: cell.children.map { it.app } }
+            .distinctBy { it.key }
+    }
+    val text = LocalWallpaperText.current
+    Box(
+        modifier.pointerInput(Unit) {
+            detectTapGestures(
+                onDoubleTap = { onDoubleTap() },
+                onLongPress = { at ->
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    menuAt = at
+                },
+            )
+        },
+    ) {
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 28.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            apps.forEach { app ->
+                Text(
+                    app.label,
+                    style = text.style(26f),
+                    modifier = Modifier.clickable { actions.launch(app, null) },
+                )
+            }
+        }
+        menuAt?.let { at ->
+            Box(Modifier.offset { IntOffset(at.x.roundToInt(), at.y.roundToInt()) }) {
+                CellMenu(expanded = true, actions = homeMenu, onDismiss = { menuAt = null })
+            }
+        }
+    }
+}
+
+/** Biometrie bzw. Geräte-PIN des Systems, z. B. für den Tresor. */
+private fun authenticate(activity: android.app.Activity, title: String, onSuccess: () -> Unit) {
+    val authenticators = BiometricManager.Authenticators.BIOMETRIC_WEAK or BiometricManager.Authenticators.DEVICE_CREDENTIAL
+    if (activity.getSystemService(BiometricManager::class.java)?.canAuthenticate(authenticators) != BiometricManager.BIOMETRIC_SUCCESS) {
+        // Ohne Displaysperre gibt es nichts zu prüfen.
+        onSuccess()
+        return
+    }
+    BiometricPrompt.Builder(activity)
+        .setTitle(title)
+        .setAllowedAuthenticators(authenticators)
+        .build()
+        .authenticate(CancellationSignal(), activity.mainExecutor, object : BiometricPrompt.AuthenticationCallback() {
+            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) = onSuccess()
+        })
+}
+
+private val GRAYSCALE_FILTER = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) })
+private const val SWIPE_DOWN_THRESHOLD_PX = 150f
+private const val VAULT_KEYWORD = "tresor"
 
 /** Geöffneter Ordner wie beim Pixel: abgerundete Karte, Name unten (antippen zum Umbenennen). */
 @Composable

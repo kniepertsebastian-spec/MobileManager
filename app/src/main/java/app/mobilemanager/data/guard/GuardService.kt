@@ -19,6 +19,15 @@ import app.mobilemanager.data.tracker.TrackerVpnController
 import app.mobilemanager.data.security.PackageInstallMonitor
 import app.mobilemanager.data.security.SimMonitor
 import app.mobilemanager.data.work.AppNotifications
+import app.mobilemanager.data.locker.LockerController
+import app.mobilemanager.data.network.NetworkPolicyController
+import app.mobilemanager.data.protection.PermissionDiffMonitor
+import app.mobilemanager.data.protection.ProtectionRepository
+import app.mobilemanager.data.protection.ProtectionWatchdog
+import app.mobilemanager.data.protection.SensorLog
+import app.mobilemanager.data.protection.UsbGuard
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.AndroidEntryPoint
@@ -45,12 +54,35 @@ class GuardService : Service() {
     @Inject lateinit var packageMonitor: PackageInstallMonitor
     @Inject lateinit var simMonitor: SimMonitor
     @Inject lateinit var notifications: AppNotifications
+    @Inject lateinit var protection: ProtectionRepository
+    @Inject lateinit var permissionDiff: PermissionDiffMonitor
+    @Inject lateinit var sensorLog: SensorLog
+    @Inject lateinit var usbGuard: UsbGuard
+    @Inject lateinit var watchdog: ProtectionWatchdog
+    @Inject lateinit var networkPolicy: NetworkPolicyController
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     private val packageReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            scope.launch { packageMonitor.check() }
+            scope.launch {
+                if (intent.action == Intent.ACTION_PACKAGE_ADDED) packageMonitor.check()
+                // Phase 4.5: Updates auf neue kritische Berechtigungen prüfen.
+                permissionDiff.check()
+            }
+        }
+    }
+
+    /** Phase 4.5: Zwischenablage bei Display aus leeren, USB-Warnung beim Anstecken. */
+    private val systemReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            scope.launch {
+                val s = protection.current()
+                when (intent.action) {
+                    Intent.ACTION_SCREEN_OFF -> if (s.clipboardClearOnScreenOff) LockerController.clearClipboard(this@GuardService)
+                    Intent.ACTION_POWER_CONNECTED -> if (s.usbWarning) usbGuard.onPowerConnected()
+                }
+            }
         }
     }
 
@@ -68,25 +100,56 @@ class GuardService : Service() {
         ContextCompat.registerReceiver(
             this,
             packageReceiver,
-            IntentFilter(Intent.ACTION_PACKAGE_ADDED).apply { addDataScheme("package") },
+            IntentFilter().apply {
+                addAction(Intent.ACTION_PACKAGE_ADDED)
+                addAction(Intent.ACTION_PACKAGE_REPLACED)
+                addDataScheme("package")
+            },
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
+        ContextCompat.registerReceiver(
+            this,
+            systemReceiver,
+            IntentFilter().apply {
+                addAction(Intent.ACTION_SCREEN_OFF)
+                addAction(Intent.ACTION_POWER_CONNECTED)
+            },
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+        running = true
         scope.launch { batteryMonitor.observe().collect { batteryGuard.evaluate(it) } }
         scope.launch {
             packageMonitor.check()
             simMonitor.check()
+            permissionDiff.check()
+            watchdog.check()
         }
+        // Phase 4.5: Sensor-Protokoll folgt dem Schalter.
+        scope.launch {
+            protection.settings.map { it.sensorLogEnabled }.distinctUntilChanged().collect { on ->
+                if (on) sensorLog.start() else sensorLog.stop()
+            }
+        }
+        // Phase 4.1: hält den Prozess für Netzwechsel und Screen-Off-Kill-Switch am Leben.
+        networkPolicy.start()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
 
     override fun onDestroy() {
+        running = false
         unregisterReceiver(packageReceiver)
+        unregisterReceiver(systemReceiver)
+        sensorLog.stop()
         scope.cancel()
         super.onDestroy()
     }
 
     companion object {
+        /** Läuft der Dienst in diesem Prozess? (für den Watchdog) */
+        @Volatile var running = false
+            private set
+
         fun start(context: Context) {
             runCatching { ContextCompat.startForegroundService(context, Intent(context, GuardService::class.java)) }
         }
@@ -109,6 +172,8 @@ class GuardBootReceiver : BroadcastReceiver() {
         fun trackerVpn(): TrackerVpnController
         fun extrasCoordinator(): ExtrasCoordinator
         fun bluetoothRepository(): BluetoothRepository
+        fun networkPolicy(): NetworkPolicyController
+        fun protection(): ProtectionRepository
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -117,13 +182,17 @@ class GuardBootReceiver : BroadcastReceiver() {
         val pending = goAsync()
         CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
             try {
-                if (entryPoint.guardSettings().settings.first().realtimeServiceEnabled) GuardService.start(context)
+                if (entryPoint.guardSettings().settings.first().realtimeServiceEnabled || entryPoint.protection().current().needsRealtime) {
+                    GuardService.start(context)
+                }
                 entryPoint.simMonitor().check()
                 // Phase 3: Tracker-Blocker und Fokus-/Lautstärke-Dienst wiederherstellen.
                 if (entryPoint.trackerSettings().current().enabled) entryPoint.trackerVpn().start()
                 entryPoint.extrasCoordinator().sync()
                 // Verbundene Bluetooth-Geräte nach dem Neustart abgleichen (Launcher-Profilwechsel).
                 if (intent.action == Intent.ACTION_BOOT_COMPLETED) entryPoint.bluetoothRepository().refreshConnectedDevices()
+                // Phase 4.1: Android vergisst die Firewall-Liste beim Neustart.
+                entryPoint.networkPolicy().start()
             } finally {
                 pending.finish()
             }

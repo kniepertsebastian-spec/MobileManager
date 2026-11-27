@@ -45,6 +45,16 @@
         android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />
 
+    <!-- Phase 4.2: NFC-Tag / YubiKey als zweiter Faktor der App-Sperre -->
+    <uses-permission android:name="android.permission.NFC" />
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+
+    <!-- Phase 4.8: Vibrationstest -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <uses-feature
+        android:name="android.hardware.nfc"
+        android:required="false" />
     <uses-feature
         android:name="android.hardware.bluetooth"
         android:required="false" />
@@ -59,6 +69,7 @@
         android:name=".MobileManagerApp"
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
+        android:networkSecurityConfig="@xml/network_security_config"
         tools:ignore="DataExtractionRules"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
@@ -75,7 +86,70 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
         </activity>
+
+        <!-- Phase 4.2: Sperrbildschirm der App-Sperre (eigene Task, nicht in den letzten Apps) -->
+        <activity
+            android:name=".ui.locker.LockActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleInstance"
+            android:noHistory="false"
+            android:taskAffinity="app.mobilemanager.lock"
+            android:windowSoftInputMode="adjustResize" />
+
+        <!-- Phase 4.6: Intent-Schnittstelle (Tasker, NFC-Tags, Shortcuts) – wirkt nur mit "Externe Steuerung erlauben" -->
+        <activity
+            android:name=".ui.external.ActionActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="app.mobilemanager.action.TRACKER_ON" />
+                <action android:name="app.mobilemanager.action.TRACKER_OFF" />
+                <action android:name="app.mobilemanager.action.TRACKER_TOGGLE" />
+                <action android:name="app.mobilemanager.action.FOCUS_ON" />
+                <action android:name="app.mobilemanager.action.FOCUS_OFF" />
+                <action android:name="app.mobilemanager.action.FIREWALL_ON" />
+                <action android:name="app.mobilemanager.action.FIREWALL_OFF" />
+                <action android:name="app.mobilemanager.action.FIREWALL_TOGGLE" />
+                <action android:name="app.mobilemanager.action.STOP_APPS" />
+                <action android:name="app.mobilemanager.action.CAFFEINE" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <!-- Phase 4.8: EXIF-Entferner im Teilen-Menü -->
+        <activity
+            android:name=".ui.external.ExifShareActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/exif_share_label"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+        </activity>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
         <!-- Bluetooth-Verbindungen (ACL_CONNECTED/DISCONNECTED sind vom Implicit-Broadcast-Verbot ausgenommen) -->
         <receiver
@@ -195,6 +269,77 @@
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Vom Nutzer aktivierte Fokus-Bremse und Lautstärke pro App: erkennt die Vordergrund-App über UsageStats" />
+        </service>
+
+        <!-- Phase 4.1: weckt den Netzwerk-Wächter bei neuem WLAN/Mobilfunknetz (PendingIntent vom System) -->
+        <receiver
+            android:name=".data.network.NetworkWakeReceiver"
+            android:exported="false" />
+
+        <!-- Phase 4.4: Koffein-Modus -->
+        <service
+            android:name=".data.power.CaffeineService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Vom Nutzer gestarteter Koffein-Modus: hält das Display für eine gewählte Zeit eingeschaltet" />
+        </service>
+
+        <!-- Phase 4.6: Schnelleinstellungs-Kacheln -->
+        <service
+            android:name=".data.tiles.TrackerTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_tile_shield"
+            android:label="@string/tile_tracker"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <meta-data android:name="android.service.quicksettings.TOGGLEABLE_TILE" android:value="true" />
+        </service>
+        <service
+            android:name=".data.tiles.FirewallTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_tile_firewall"
+            android:label="@string/tile_firewall"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <meta-data android:name="android.service.quicksettings.TOGGLEABLE_TILE" android:value="true" />
+        </service>
+        <service
+            android:name=".data.tiles.FocusTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_tile_focus"
+            android:label="@string/tile_focus"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <meta-data android:name="android.service.quicksettings.TOGGLEABLE_TILE" android:value="true" />
+        </service>
+        <service
+            android:name=".data.tiles.AppStopperTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_tile_stop"
+            android:label="@string/tile_stopper"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+        <service
+            android:name=".data.tiles.CaffeineTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_tile_coffee"
+            android:label="@string/tile_caffeine"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <meta-data android:name="android.service.quicksettings.TOGGLEABLE_TILE" android:value="true" />
         </service>
 
         <provider

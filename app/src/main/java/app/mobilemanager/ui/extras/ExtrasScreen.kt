@@ -24,6 +24,10 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Hardware
 import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.filled.VpnLock
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Router
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -132,6 +136,10 @@ fun ExtrasScreen(
     onOpenVolume: () -> Unit,
     onOpenDiagnostics: () -> Unit,
     onOpenBackup: () -> Unit,
+    onOpenNetwork: () -> Unit,
+    onOpenLocker: () -> Unit,
+    onOpenProtection: () -> Unit,
+    onOpenPowerTools: () -> Unit,
     viewModel: ExtrasViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
@@ -167,6 +175,10 @@ fun ExtrasScreen(
                     { context.startActivitySafely(LauncherComponents.settingsIntent(context)) }
                 } else null,
             )
+            NavCard(Icons.Default.Lock, "App-Sperre (2FA)", "Biometrie plus PIN, Einmalcode oder NFC-Tag – auch für Einstellungen & Installer", onOpenLocker)
+            NavCard(Icons.Default.Router, "Netzwerk-Wächter", "Firewall pro App, Screen-Off-Kill-Switch, Privates DNS je Netz, WLAN-Warnung, Datenlimit", onOpenNetwork)
+            NavCard(Icons.Default.Shield, "Selbstschutz & Datenschutz", "Watchdog, Berechtigungs-Diff, Sensor-Protokoll, Device Owner, Backup, externe Steuerung", onOpenProtection)
+            NavCard(Icons.Default.Build, "Power-Tools", "App-Ops, Bloatware, Rechte auf Zeit, Animationen, Koffein-Modus (Shizuku)", onOpenPowerTools)
             ExtraCard(
                 icon = Icons.Default.VpnLock,
                 title = "Tracker-Blocker",
@@ -216,6 +228,25 @@ fun ExtrasScreen(
                 onCheckedChange = { v -> viewModel.update { it.copy(apkBackupEnabled = v) } },
                 onClick = if (settings.apkBackupEnabled) onOpenBackup else null,
             )
+        }
+    }
+}
+
+/** Phase 4: Modul mit eigener Seite (Schalter dort, damit Sperre & Strict Mode nicht umgangen werden). */
+@Composable
+private fun NavCard(icon: ImageVector, title: String, detail: String, onClick: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+    ) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleMedium)
+                Text(detail, style = MaterialTheme.typography.bodySmall)
+            }
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
         }
     }
 }

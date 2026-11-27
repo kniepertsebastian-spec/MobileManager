@@ -94,7 +94,12 @@ class DiagnosticsViewModel @Inject constructor(private val cleaner: SpeakerClean
 }
 
 @Composable
-fun DiagnosticsScreen(onBack: () -> Unit, onOpenDisplayTest: () -> Unit, viewModel: DiagnosticsViewModel = hiltViewModel()) {
+fun DiagnosticsScreen(
+    onBack: () -> Unit,
+    onOpenDisplayTest: () -> Unit,
+    onOpenHardwareTests: () -> Unit,
+    viewModel: DiagnosticsViewModel = hiltViewModel(),
+) {
     val progress by viewModel.progress.collectAsStateWithLifecycle()
     var headphones by remember { mutableStateOf(false) }
 
@@ -139,6 +144,15 @@ fun DiagnosticsScreen(onBack: () -> Unit, onOpenDisplayTest: () -> Unit, viewMod
                     modifier = Modifier.padding(vertical = 8.dp),
                 )
                 Button(onClick = onOpenDisplayTest) { Text("Test starten") }
+            }
+            SectionCard {
+                Text("Weitere Tests", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Touchscreen-Raster, Lautsprecher links/rechts, Vibration und Speicher-Geschwindigkeit.",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(vertical = 8.dp),
+                )
+                Button(onClick = onOpenHardwareTests) { Text("Öffnen") }
             }
         }
     }

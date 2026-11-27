@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Phase 4.8: nur die bereinigten Bilder des EXIF-Entferners werden geteilt. -->
+<paths>
+    <cache-path name="exif_clean" path="exif_clean/" />
+</paths>

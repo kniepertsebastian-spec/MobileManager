@@ -6,6 +6,18 @@
     <string name="device_admin_label">MobileManager – Diebstahl-Erkennung</string>
     <string name="device_admin_description">Erkennt falsche PIN-, Muster- oder Passwort-Eingaben auf dem Sperrbildschirm und löst einen Alarm aus. MobileManager nutzt keine weiteren Administrator-Rechte. Vor dem Deinstallieren in der App unter Wächter → Security deaktivieren.</string>
     <string name="notification_listener_label">MobileManager – Archiv &amp; Digest</string>
-    <string name="app_switch_service_label">MobileManager – Fokus-Bremse &amp; Lautstärke</string>
-    <string name="app_switch_service_description">Erkennt, welche App gerade geöffnet wird – für die Fokus-Bremse (Atempause vor markierten Apps) und die Lautstärke pro App. Der Dienst liest keine Bildschirminhalte und reagiert nur, solange eines dieser Extras eingeschaltet ist.</string>
+    <string name="app_switch_service_label">MobileManager – App-Sperre, Fokus-Bremse &amp; Gesten</string>
+    <string name="app_switch_service_description">Erkennt, welche App gerade geöffnet wird – für die App-Sperre, die Fokus-Bremse (Atempause vor markierten Apps) und die Lautstärke pro App. Bei aktivierter Split-Screen-Prüfung liest der Dienst zusätzlich, welche Apps in sichtbaren Fenstern laufen (nur Paketnamen, keine Inhalte). Launcher-Gesten nutzen ihn, um das Display zu sperren oder die Benachrichtigungen zu öffnen. Er reagiert nur, solange eines dieser Module eingeschaltet ist.</string>
+    <string name="tile_tracker">Tracker-Blocker</string>
+    <string name="tile_focus">Fokus-Bremse</string>
+    <string name="tile_stopper">Apps stoppen</string>
+    <string name="tile_caffeine">Koffein</string>
+    <string name="tile_firewall">Firewall</string>
+    <string name="exif_share_label">Ohne Metadaten teilen</string>
+    <string name="lock_shield_title">Gesperrt</string>
+    <string name="lock_shield_unlock">Entsperren</string>
+    <string name="shortcut_tracker">Tracker-Blocker</string>
+    <string name="shortcut_firewall">Firewall</string>
+    <string name="shortcut_stop_apps">Apps stoppen</string>
+    <string name="shortcut_caffeine">Koffein</string>
 </resources>

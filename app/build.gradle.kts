@@ -15,14 +15,16 @@ android {
         applicationId = "app.mobilemanager"
         minSdk = 33
         targetSdk = 37
-        versionCode = 3
-        versionName = "0.3.0"
+        versionCode = 4
+        versionName = "0.4.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // Phase 4.0: R8 verkleinert und optimiert (ohne Verschleierung, siehe proguard-rules.pro).
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
@@ -55,6 +57,9 @@ kotlin {
         freeCompilerArgs.add("-Xannotation-default-target=param-property")
     }
 }
+
+// Room-Schemas für den MigrationTestHelper in die Test-Assets aufnehmen.
+android.sourceSets.getByName("androidTest").assets.directories.add("$projectDir/schemas")
 
 ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
@@ -105,6 +110,17 @@ dependencies {
     implementation(libs.angus.mail)
     implementation(libs.play.services.location)
 
+    // Phase 4.8: EXIF-Entferner im Teilen-Menü
+    implementation(libs.androidx.exifinterface)
+
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+
+    // Phase 4.0: Instrumentation-Tests (Room-Migrationen, Compose-UI)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.room.testing)
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
 }

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Phase 4.0: kein Klartext-HTTP. Alle Verbindungen der App (Alarm-Versand, Blocklisten, DNS-over-HTTPS)
+    laufen über TLS und vertrauen nur den System-Zertifizierungsstellen – keine vom Nutzer installierten CAs.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

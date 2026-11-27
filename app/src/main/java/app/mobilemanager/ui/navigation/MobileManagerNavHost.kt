@@ -44,6 +44,12 @@ import app.mobilemanager.ui.extras.AppVolumeScreen
 import app.mobilemanager.ui.extras.DiagnosticsScreen
 import app.mobilemanager.ui.extras.DisplayTestScreen
 import app.mobilemanager.ui.extras.ExtrasScreen
+import app.mobilemanager.ui.extras.HardwareTestsScreen
+import app.mobilemanager.ui.extras.TouchTestScreen
+import app.mobilemanager.ui.locker.LockerScreen
+import app.mobilemanager.ui.network.NetworkScreen
+import app.mobilemanager.ui.power.PowerToolsScreen
+import app.mobilemanager.ui.protection.ProtectionScreen
 import app.mobilemanager.ui.extras.FocusBrakeScreen
 import app.mobilemanager.ui.extras.TrackerBlockerScreen
 import app.mobilemanager.ui.guard.AlertSettingsScreen
@@ -80,6 +86,12 @@ object Routes {
     const val EXTRAS_DIAGNOSTICS = "extras/diagnostics"
     const val EXTRAS_DISPLAY_TEST = "extras/display_test"
     const val EXTRAS_BACKUP = "extras/backup"
+    const val NETWORK = "extras/network"
+    const val LOCKER = "extras/locker"
+    const val PROTECTION = "extras/protection"
+    const val POWER_TOOLS = "extras/power_tools"
+    const val HARDWARE_TESTS = "extras/hardware_tests"
+    const val TOUCH_TEST = "extras/touch_test"
 
     fun review(mode: String = REVIEW_MODE_PHOTOS) = "cleaner/review?mode=$mode"
 
@@ -251,8 +263,28 @@ fun MobileManagerNavHost(
                         onOpenVolume = { navController.navigate(Routes.EXTRAS_VOLUME) },
                         onOpenDiagnostics = { navController.navigate(Routes.EXTRAS_DIAGNOSTICS) },
                         onOpenBackup = { navController.navigate(Routes.EXTRAS_BACKUP) },
+                        onOpenNetwork = { navController.navigate(Routes.NETWORK) },
+                        onOpenLocker = { navController.navigate(Routes.LOCKER) },
+                        onOpenProtection = { navController.navigate(Routes.PROTECTION) },
+                        onOpenPowerTools = { navController.navigate(Routes.POWER_TOOLS) },
                     )
                 }
+                composable(Routes.NETWORK) { NetworkScreen(onBack = { navController.popBackStack() }) }
+                composable(Routes.LOCKER) { LockerScreen(onBack = { navController.popBackStack() }) }
+                composable(Routes.PROTECTION) {
+                    ProtectionScreen(
+                        onBack = { navController.popBackStack() },
+                        onOpenTamperLog = { navController.navigate(Routes.GUARD_SECURITY) },
+                    )
+                }
+                composable(Routes.POWER_TOOLS) { PowerToolsScreen(onBack = { navController.popBackStack() }) }
+                composable(Routes.HARDWARE_TESTS) {
+                    HardwareTestsScreen(
+                        onBack = { navController.popBackStack() },
+                        onOpenTouchTest = { navController.navigate(Routes.TOUCH_TEST) },
+                    )
+                }
+                composable(Routes.TOUCH_TEST) { TouchTestScreen(onDone = { navController.popBackStack() }) }
                 composable(Routes.EXTRAS_TRACKER) { TrackerBlockerScreen(onBack = { navController.popBackStack() }) }
                 composable(Routes.EXTRAS_FOCUS) { FocusBrakeScreen(onBack = { navController.popBackStack() }) }
                 composable(Routes.EXTRAS_VOLUME) { AppVolumeScreen(onBack = { navController.popBackStack() }) }
@@ -260,6 +292,7 @@ fun MobileManagerNavHost(
                     DiagnosticsScreen(
                         onBack = { navController.popBackStack() },
                         onOpenDisplayTest = { navController.navigate(Routes.EXTRAS_DISPLAY_TEST) },
+                        onOpenHardwareTests = { navController.navigate(Routes.HARDWARE_TESTS) },
                     )
                 }
                 composable(Routes.EXTRAS_DISPLAY_TEST) { DisplayTestScreen(onDone = { navController.popBackStack() }) }

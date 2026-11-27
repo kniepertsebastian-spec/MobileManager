@@ -73,6 +73,54 @@ class WorkScheduler @Inject constructor(
         scheduleNightReport(settings)
     }
 
+    /* ---------- Phase 4 ---------- */
+
+    fun applyPhase4(periodicCheck: Boolean, subscriptions: Boolean) {
+        schedulePeriodic<ProtectionCheckWorker>(PROTECTION_CHECK_WORK, periodicCheck, 15, TimeUnit.MINUTES)
+        if (!subscriptions) {
+            workManager.cancelUniqueWork(BLOCKLIST_WORK)
+            return
+        }
+        val request = PeriodicWorkRequestBuilder<BlocklistUpdateWorker>(7, TimeUnit.DAYS)
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .addTag(BLOCKLIST_WORK)
+            .build()
+        workManager.enqueueUniquePeriodicWork(BLOCKLIST_WORK, ExistingPeriodicWorkPolicy.KEEP, request)
+    }
+
+    fun updateBlocklistsNow() {
+        val request = OneTimeWorkRequestBuilder<BlocklistUpdateWorker>()
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+            .build()
+        workManager.enqueueUniqueWork("$BLOCKLIST_WORK-now", ExistingWorkPolicy.REPLACE, request)
+    }
+
+    fun blocklistUpdateRunning() = workManager.getWorkInfosForUniqueWorkFlow("$BLOCKLIST_WORK-now")
+
+    fun scheduleRevoke(packageName: String, permissions: List<String>, minutes: Int) {
+        val request = OneTimeWorkRequestBuilder<TempPermissionRevokeWorker>()
+            .setInitialDelay(minutes.toLong(), TimeUnit.MINUTES)
+            .setInputData(
+                workDataOf(
+                    TempPermissionRevokeWorker.KEY_PACKAGE to packageName,
+                    TempPermissionRevokeWorker.KEY_PERMISSIONS to permissions.toTypedArray(),
+                ),
+            )
+            .setBackoffCriteria(BackoffPolicy.LINEAR, 5, TimeUnit.MINUTES)
+            .addTag(TEMP_PERMISSION_TAG)
+            .build()
+        workManager.enqueueUniqueWork("revoke_$packageName", ExistingWorkPolicy.REPLACE, request)
+    }
+
+    fun runAppStopperNow() {
+        workManager.enqueueUniqueWork(
+            "$APP_STOPPER_WORK-now",
+            ExistingWorkPolicy.KEEP,
+            OneTimeWorkRequestBuilder<AppStopperWorker>().build(),
+        )
+    }
+
     /** Alarm in die Offline-Warteschlange stellen: läuft, sobald Internet verfügbar ist. */
     fun enqueueAlert(eventId: Long) {
         val request = OneTimeWorkRequestBuilder<AlertSendWorker>()
@@ -136,6 +184,9 @@ class WorkScheduler @Inject constructor(
         const val APP_STOPPER_WORK = "app_stopper_periodic"
         const val NIGHT_SCAN_WORK = "night_scan_periodic"
         const val GUARD_CHECK_WORK = "guard_check_periodic"
+        const val PROTECTION_CHECK_WORK = "protection_check_periodic"
+        const val BLOCKLIST_WORK = "blocklist_update_weekly"
+        const val TEMP_PERMISSION_TAG = "temp_permission_revoke"
         const val EXPIRED_FILES_WORK = "expired_files_weekly"
         const val NOTIFICATION_CLEANUP_WORK = "notification_cleanup_daily"
         const val DIGEST_WORK = "notification_digest"

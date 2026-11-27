@@ -39,6 +39,13 @@ data class TrackerSettings(
     val importedCount: Int = 0,
     /** Ändert sich bei jedem Import, damit die Blockliste neu geladen wird. */
     val importVersion: Long = 0,
+    /** Phase 4.1: abonnierte Blocklisten (HTTPS-URLs), wöchentlich aktualisiert. */
+    val subscriptions: Set<String> = emptySet(),
+    val subscriptionCount: Int = 0,
+    val subscriptionUpdated: Long = 0,
+    val subscriptionError: String? = null,
+    /** Phase 4.1: DNS-over-HTTPS-Endpunkt; leer = System-Resolver des Netzes. */
+    val dohUrl: String = "",
 )
 
 @Singleton
@@ -51,6 +58,11 @@ class TrackerSettingsRepository @Inject constructor(@ApplicationContext private 
         val IMPORTED_NAME = stringPreferencesKey("imported_name")
         val IMPORTED_COUNT = intPreferencesKey("imported_count")
         val IMPORT_VERSION = longPreferencesKey("import_version")
+        val SUBSCRIPTIONS = stringSetPreferencesKey("subscriptions")
+        val SUB_COUNT = intPreferencesKey("subscription_count")
+        val SUB_UPDATED = longPreferencesKey("subscription_updated")
+        val SUB_ERROR = stringPreferencesKey("subscription_error")
+        val DOH_URL = stringPreferencesKey("doh_url")
     }
 
     val settings: Flow<TrackerSettings> = context.trackerStore.data.map(::fromPrefs)
@@ -79,6 +91,16 @@ class TrackerSettingsRepository @Inject constructor(@ApplicationContext private 
         p[Keys.IMPORT_VERSION] = System.currentTimeMillis()
     }
 
+    suspend fun setSubscriptions(urls: Set<String>) = context.trackerStore.edit { it[Keys.SUBSCRIPTIONS] = urls }
+
+    suspend fun setSubscriptionResult(count: Int, error: String?) = context.trackerStore.edit { p ->
+        p[Keys.SUB_COUNT] = count
+        p[Keys.SUB_UPDATED] = System.currentTimeMillis()
+        if (error == null) p.remove(Keys.SUB_ERROR) else p[Keys.SUB_ERROR] = error
+    }
+
+    suspend fun setDohUrl(url: String) = context.trackerStore.edit { it[Keys.DOH_URL] = url.trim() }
+
     private fun fromPrefs(p: Preferences) = TrackerSettings(
         enabled = p[Keys.ENABLED] ?: false,
         customBlocked = p[Keys.CUSTOM] ?: emptySet(),
@@ -86,6 +108,11 @@ class TrackerSettingsRepository @Inject constructor(@ApplicationContext private 
         importedName = p[Keys.IMPORTED_NAME],
         importedCount = p[Keys.IMPORTED_COUNT] ?: 0,
         importVersion = p[Keys.IMPORT_VERSION] ?: 0,
+        subscriptions = p[Keys.SUBSCRIPTIONS] ?: emptySet(),
+        subscriptionCount = p[Keys.SUB_COUNT] ?: 0,
+        subscriptionUpdated = p[Keys.SUB_UPDATED] ?: 0,
+        subscriptionError = p[Keys.SUB_ERROR],
+        dohUrl = p[Keys.DOH_URL].orEmpty(),
     )
 }
 
@@ -103,14 +130,58 @@ class TrackerBlocklistRepository @Inject constructor(
 
     val builtInCount: Int get() = builtIn.size
 
+    private val subscriptionDir get() = File(context.filesDir, "blocklists")
+
     val matcher: Flow<DomainMatcher> = settings.settings
-        .map { Triple(it.customBlocked, it.allowed, it.importVersion) }
+        .map { listOf(it.customBlocked, it.allowed, it.importVersion, it.subscriptions, it.subscriptionUpdated) }
         .distinctUntilChanged()
-        .map { (custom, allowed, _) ->
+        .map {
+            val s = settings.current()
             val imported = if (importFile.exists()) importFile.readLines().toSet() else emptySet()
-            DomainMatcher(builtIn + imported + custom, allowed)
+            val subscribed = s.subscriptions.flatMap { url ->
+                subscriptionFile(url).takeIf(File::exists)?.readLines().orEmpty()
+            }
+            DomainMatcher(builtIn + imported + subscribed + s.customBlocked, s.allowed)
         }
         .flowOn(Dispatchers.IO)
+
+    private fun subscriptionFile(url: String) = File(subscriptionDir, "${url.hashCode().toUInt().toString(16)}.txt")
+
+    /**
+     * Phase 4.1: lädt alle abonnierten Listen (nur HTTPS) und speichert sie lokal. Einzelne Fehler
+     * behalten die letzte gute Version. @return Gesamtzahl Domains.
+     */
+    suspend fun updateSubscriptions(http: okhttp3.OkHttpClient): Result<Int> = withContext(Dispatchers.IO) {
+        val s = settings.current()
+        subscriptionDir.mkdirs()
+        val errors = mutableListOf<String>()
+        var total = 0
+        for (url in s.subscriptions) {
+            val result = runCatching {
+                require(url.startsWith("https://")) { "nur HTTPS erlaubt" }
+                http.newCall(okhttp3.Request.Builder().url(url).build()).execute().use { response ->
+                    check(response.isSuccessful) { "HTTP ${response.code}" }
+                    val domains = response.body.charStream().buffered().useLines { HostsParser.parse(it) }
+                    require(domains.isNotEmpty()) { "keine Domains gefunden" }
+                    require(domains.size <= MAX_SUBSCRIPTION) { "Liste zu groß" }
+                    val target = subscriptionFile(url)
+                    val tmp = File(subscriptionDir, target.name + ".tmp")
+                    tmp.writeText(domains.joinToString("\n"))
+                    tmp.renameTo(target)
+                    domains.size
+                }
+            }
+            result.onSuccess { total += it }.onFailure { e ->
+                errors += "${url.substringAfter("://").substringBefore('/')}: ${e.message}"
+                subscriptionFile(url).takeIf(File::exists)?.let { total += it.readLines().size }
+            }
+        }
+        // Dateien abbestellter Listen entfernen.
+        val keep = s.subscriptions.map { subscriptionFile(it).name }.toSet()
+        subscriptionDir.listFiles()?.filter { it.name !in keep }?.forEach { it.delete() }
+        settings.setSubscriptionResult(total, errors.takeIf { it.isNotEmpty() }?.joinToString("; "))
+        if (errors.isEmpty() || total > 0) Result.success(total) else Result.failure(IllegalStateException(errors.joinToString("; ")))
+    }
 
     /** Hosts-Datei einlesen (lokal, z. B. aus dem Download-Ordner). @return Anzahl Domains. */
     suspend fun import(uri: Uri): Result<Int> = withContext(Dispatchers.IO) {
@@ -136,9 +207,17 @@ class TrackerBlocklistRepository @Inject constructor(
         }
     }.getOrNull() ?: "Importierte Liste"
 
-    private companion object {
-        const val ASSET = "tracker_blocklist.txt"
+    companion object {
+        private const val ASSET = "tracker_blocklist.txt"
         const val MAX_IMPORT = 300_000
+        const val MAX_SUBSCRIPTION = 500_000
+
+        /** Bekannte, gepflegte Listen als Vorschläge (Domain-Format). */
+        val PRESETS = listOf(
+            "HaGeZi Light" to "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/domains/light.txt",
+            "HaGeZi Pro" to "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/domains/pro.txt",
+            "OISD Small" to "https://small.oisd.nl/domainswild2",
+        )
     }
 }
 

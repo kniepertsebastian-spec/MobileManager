@@ -1,6 +1,7 @@
 package app.mobilemanager.data.extras
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.Service
 import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
@@ -18,10 +19,13 @@ import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityWindowInfo
 import android.view.inputmethod.InputMethodManager
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import app.mobilemanager.data.local.AppVolumeRuleDao
+import app.mobilemanager.data.locker.LockerController
+import app.mobilemanager.data.locker.LockerRepository
 import app.mobilemanager.data.local.AppVolumeRuleEntity
 import app.mobilemanager.data.permissions.PermissionChecker
 import app.mobilemanager.data.work.AppNotifications
@@ -41,6 +45,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -60,6 +65,7 @@ class ForegroundAppTracker @Inject constructor(
     settingsRepository: ExtrasSettingsRepository,
     private val focusBrake: FocusBrakeController,
     private val volume: PerAppVolumeController,
+    private val locker: LockerController,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val main = Handler(Looper.getMainLooper())
@@ -70,11 +76,20 @@ class ForegroundAppTracker @Inject constructor(
         context.getSystemService(InputMethodManager::class.java)?.enabledInputMethodList?.map { it.packageName }?.toSet().orEmpty()
     }
 
+    /** Zuletzt erkannte Vordergrund-App (für das Sensor-Protokoll). */
+    @Volatile var currentPackage: String? = null
+        private set
+
     fun onForeground(packageName: String?, className: String?) {
         val pkg = packageName ?: return
-        val s = settings.value ?: return
-        if (!s.needsForegroundApp) return
+        val s = settings.value
+        val lockerActive = locker.active
+        if (s?.needsForegroundApp != true && !lockerActive) return
         if (!ForegroundFilter.isRelevant(pkg, className, context.packageName, keyboards)) return
+        currentPackage = pkg
+        // Phase 4.2: die App-Sperre prüft jedes Fenster, auch ohne Paketwechsel.
+        if (lockerActive) locker.onForeground(pkg)
+        if (s == null || !s.needsForegroundApp) return
         main.post {
             if (pkg == lastPackage) return@post
             val previous = lastPackage
@@ -174,38 +189,71 @@ class AppSwitchAccessibilityService : AccessibilityService() {
 
     @Inject lateinit var tracker: ForegroundAppTracker
     @Inject lateinit var settings: ExtrasSettingsRepository
+    @Inject lateinit var lockerRepository: LockerRepository
+    @Inject lateinit var locker: LockerController
     @Inject lateinit var coordinator: ExtrasCoordinator
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        instance = java.lang.ref.WeakReference(this)
         coordinator.sync()
         scope.launch {
-            settings.settings.map { it.needsForegroundApp }.distinctUntilChanged().collect { needed ->
+            combine(settings.settings, lockerRepository.settings) { extras, lock ->
+                Triple(extras.needsForegroundApp, lock.active, lock.active && lock.checkAllWindows)
+            }.distinctUntilChanged().collect { (extrasNeeded, lockerActive, allWindows) ->
                 serviceInfo?.let { info ->
-                    info.eventTypes = if (needed) AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED else 0
+                    var types = if (extrasNeeded || lockerActive) AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED else 0
+                    if (allWindows) types = types or AccessibilityEvent.TYPE_WINDOWS_CHANGED
+                    info.eventTypes = types
+                    info.flags = if (allWindows) {
+                        info.flags or AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+                    } else {
+                        info.flags and AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS.inv()
+                    }
                     serviceInfo = info
                 }
-                if (!needed) tracker.reset()
+                if (!extrasNeeded) tracker.reset()
             }
         }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        if (event?.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
-        tracker.onForeground(event.packageName?.toString(), event.className?.toString())
+        when (event?.eventType) {
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ->
+                tracker.onForeground(event.packageName?.toString(), event.className?.toString())
+            // Phase 4.3: Split-Screen und Pop-up-Fenster – alle sichtbaren App-Fenster prüfen (nur Paketnamen).
+            AccessibilityEvent.TYPE_WINDOWS_CHANGED -> {
+                val packages = runCatching {
+                    windows.filter { it.type == AccessibilityWindowInfo.TYPE_APPLICATION }
+                        .mapNotNull { it.root?.packageName?.toString() }
+                        .toSet()
+                }.getOrDefault(emptySet())
+                if (packages.isNotEmpty()) locker.onVisibleWindows(packages)
+            }
+            else -> Unit
+        }
     }
 
     override fun onInterrupt() = Unit
 
     override fun onUnbind(intent: Intent?): Boolean {
+        instance = null
         scope.cancel()
         coordinator.sync()
         return super.onUnbind(intent)
     }
 
     companion object {
+        @Volatile private var instance: java.lang.ref.WeakReference<AppSwitchAccessibilityService>? = null
+
+        /**
+         * Phase 4.7: globale Aktionen für Launcher-Gesten (Display sperren, Benachrichtigungen öffnen).
+         * @return false, wenn die Bedienungshilfe nicht aktiv ist.
+         */
+        fun performGlobal(action: Int): Boolean = instance?.get()?.performGlobalAction(action) == true
+
         fun isEnabled(context: Context): Boolean {
             val expected = ComponentName(context, AppSwitchAccessibilityService::class.java)
             val enabled = Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: return false
@@ -301,16 +349,18 @@ class ForegroundMonitorService : Service() {
 class ExtrasCoordinator @Inject constructor(
     @ApplicationContext private val context: Context,
     private val settings: ExtrasSettingsRepository,
+    private val locker: LockerRepository,
     private val permissions: PermissionChecker,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     fun sync() {
-        scope.launch { apply(settings.current()) }
+        scope.launch { apply(settings.current(), locker.current().active) }
     }
 
-    fun apply(s: ExtrasSettings) {
-        val needsMonitor = s.needsForegroundApp && !AppSwitchAccessibilityService.isEnabled(context) && permissions.hasUsageAccess()
+    fun apply(s: ExtrasSettings, lockerActive: Boolean) {
+        val needed = s.needsForegroundApp || lockerActive
+        val needsMonitor = needed && !AppSwitchAccessibilityService.isEnabled(context) && permissions.hasUsageAccess()
         val intent = Intent(context, ForegroundMonitorService::class.java)
         if (needsMonitor) {
             runCatching { ContextCompat.startForegroundService(context, intent) }

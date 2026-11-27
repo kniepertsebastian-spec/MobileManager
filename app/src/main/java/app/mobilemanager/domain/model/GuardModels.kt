@@ -8,6 +8,10 @@ enum class SecurityEventType(val label: String, val isTheftIndicator: Boolean) {
     SIM_CHANGED("SIM-Karte geändert oder entfernt", true),
     DEVICE_ADMIN_DISABLED("Geräteadministrator deaktiviert", false),
     TEST("Test-Alarm", false),
+    LOCK_FAILED("Fehlversuche an der App-Sperre", false),
+    PROTECTION_INTERRUPTED("Schutzfunktion unterbrochen", false),
+    PERMISSION_ADDED("Neue kritische Berechtigung nach Update", false),
+    PROTECTED_SCREEN("Geschützter Systembildschirm geöffnet", false),
 }
 
 /** Versandstatus eines Sicherheitsereignisses. */

@@ -41,6 +41,30 @@ Room-Schema v3 (Auto-Migration von v2). Der Launcher ist ein eigenes Gradle-Modu
 | 3.3 | Tracker-Blocker per lokalem `VpnService`: nur die virtuelle DNS-Adresse wird ins VPN geroutet, gesperrte Domains (inkl. Subdomains) bekommen sofort `NXDOMAIN`, der Rest geht unverändert an den DNS-Server des aktuellen Netzes. ~150 mitgelieferte Tracker-Domains, eigener Hosts-Import, eigene Sperr-/Erlaubtliste. Statistik pro App/Domain und Tag (aggregiert, 30 Tage), Rangliste unter Wächter → Security. Erkennt fremde VPNs und bleibt dann aus |
 | 3.4 | Fokus-Bremse (Overlay mit Countdown, „Abbrechen“ führt zum Startbildschirm, Ruhezeit nach „Trotzdem öffnen“), Lautstärke pro App (setzt beim Öffnen, stellt beim Verlassen wieder her). App-Erkennung bevorzugt über eine eigene, schlanke Bedienungshilfe (nur Fensterwechsel, keine Inhalte), sonst über UsageStats – dann nur bei eingeschaltetem Display. Hardware-Schnellcheck: Lautsprecher-Reiniger (165 Hz, 15 s, `AudioTrack`) und Display-Test (Rot/Grün/Blau/Weiß/Schwarz). APK-Backup von `base.apk` und Split-APKs nach `Documents/PixelManagerBackups` |
 
+## Phase 4 (Sicherheit, Netzwerk & Power-Tools) – Stand
+
+Roadmap: [docs/roadmap_phase_4_erweiterungen.md](docs/roadmap_phase_4_erweiterungen.md). Neue Seiten unter **Launcher & Extras**: *App-Sperre (2FA)*,
+*Netzwerk-Wächter*, *Selbstschutz & Datenschutz*, *Power-Tools*. Shell-Befehle laufen nur über eine feste Erlaubtliste im
+Shizuku-Dienst (`ShellCommandPolicy`), nie als frei formulierter Shell-String.
+
+| Meilenstein | Inhalt |
+|---|---|
+| 4.0 | `network_security_config.xml` (kein Klartext, nur System-CAs). Release-Builds mit R8 (verkleinert + optimiert, nicht verschleiert) und Regeln für Shizuku/AIDL, Jakarta Mail, ML Kit. `androidTest`: Room-Migrationstest (v1 → v3 über die exportierten Schemas) und Compose-UI-Tests. CI unter `.github/workflows/android.yml` (Unit-Tests, Lint, Debug-/Test-/Release-Build) |
+| 4.1 | Firewall pro App getrennt für WLAN und Mobilfunk über die Android-eigene Netzsperre (`cmd connectivity set-package-networking-enabled`, Shizuku) – wirkt auch neben dem Tracker-VPN. Screen-Off-Kill-Switch. Privates DNS automatisch je Netzart. Blocklisten-Abos (HaGeZi, OISD, eigene HTTPS-URLs, wöchentlich per WorkManager). DNS-over-HTTPS im Tracker-Blocker (Quad9/Mullvad/Cloudflare, RFC 8484). Unsicheres-WLAN-Warnung (offen, WEP, Captive Portal). Datennutzung heute, Live-Rate und mobiles Tageslimit |
+| 4.2 | App-Sperre: Faktor 1 System-Biometrie (Geräte-PIN als Ausweg), Faktor 2 App-PIN (PBKDF2, 120k Iterationen), TOTP (RFC 6238, Geheimnis AES-GCM im Keystore) oder NFC-Tag/YubiKey; 5 Recovery-Codes. Vertraute Bluetooth-Geräte (Smartwatch) lassen Faktor 2 weg. Freigabe-Timer bzw. „bis Display aus“, `FLAG_SECURE`, steigende Sperrzeit nach Fehlversuchen, Overlay verdeckt die App sofort |
+| 4.3 | Systemeinstellungen und Paket-Installer mitsperren, MobileManager selbst mitsperren, Split-Screen-/Pop-up-Prüfung über die Fensterliste, Benachrichtigungen gesperrter Apps ausblenden (landen im Archiv), Watchdog mit Manipulations-Protokoll, Always-on-VPN-Prüfung, Strict Mode (Ausschalten erst nach Wartezeit). Device-Owner-Seite: Deinstallation blockieren, Safe-Mode/Apps-Steuerung/USB-Debugging sperren, VPN-Lockdown erzwingen |
+| 4.4 | Shizuku-Hilfe nach Neustart, App-Ops (Hintergrund, Wakelock, Zwischenablage, Vibration), Bloatware-Manager (`pm disable-user`, geschützte Systemkerne), Rechte auf Zeit (Standort/Kamera/Mikrofon, Entzug per WorkManager), Animationen, Dark Mode, Caches leeren, Koffein-Modus (1-px-Overlay mit `FLAG_KEEP_SCREEN_ON`) |
+| 4.5 | Zwischenablage bei Display aus bzw. nach Verlassen gesperrter Apps leeren, Berechtigungs-Diff nach Updates, USB-Debugging-Warnung am USB-Datenanschluss, Sensor-Protokoll (Kamera/Mikrofon belegt + Vordergrund-App + Display aus) |
+| 4.6 | Schnelleinstellungs-Kacheln (Tracker, Firewall, Fokus, Apps stoppen, Koffein), verschlüsseltes Komplett-Backup `.mmbackup` (AES-256-GCM, PBKDF2), Intent-/Shortcut-Schnittstelle `app.mobilemanager.action.*` für Tasker/NFC (nur mit „Externe Steuerung erlauben“) |
+| 4.7 | Launcher: Graustufen, Textliste, automatisch bei Fokus-Bremse, Tresor (Suche „tresor“ + Biometrie), Universal-Suche (MobileManager-Aktionen und Android-Einstellungen), Gesten Doppeltippen/Wischen nach unten (Sperren, Benachrichtigungen, Schnelleinstellungen, Suche) |
+| 4.8 | EXIF-Entferner im Teilen-Menü („Ohne Metadaten teilen“), Hardware-Tests: Touch-Raster, Lautsprecher links/rechts, Vibration, Speichergeschwindigkeit |
+
+**Bewusst (noch) nicht umgesetzt:** Klartext-HTTP-Blocker und App-Verbindungslog mit Geo-IP (brauchen Full-Traffic-Routing mit
+nativem TCP-Stack), Evil-Twin-Erkennung über BSSID-Wechsel (Standort im Hintergrund), Frontkamera-Foto nach Fehlversuchen,
+Schlaf-Automatik, neue Automatik-Trigger (WLAN/Zeit/Laden/App-Start), App-spezifische Display-Profile, Glance-Widgets,
+Foto-/Video-Kompressor, geplante Aufräum-Routinen für APKs/leere Ordner, Mikrofon-Pegeltest, Kontakte in der Universal-Suche,
+Ktlint/Detekt in der CI.
+
 ## Bauen
 
 Voraussetzungen: JDK 17+ (Gradle 9 läuft nicht mit JDK 11) und ein Android SDK mit Platform 37.
@@ -67,7 +91,10 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
    geht es über Einstellungen → Apps → Standard-Apps → Startbildschirm-App oder einfach durch Ausschalten des Schalters.
 8. Tracker-Blocker einschalten und die einmalige VPN-Anfrage bestätigen. Optional unter Einstellungen → Netzwerk → VPN
    „Durchgehend aktives VPN“ für MobileManager aktivieren.
-9. Für Fokus-Bremse/Lautstärke pro App am besten die Bedienungshilfe „MobileManager – Fokus-Bremse & Lautstärke“ aktivieren.
+9. Für App-Sperre, Fokus-Bremse, Lautstärke pro App und Launcher-Gesten die Bedienungshilfe
+   „MobileManager – App-Sperre, Fokus-Bremse & Gesten“ aktivieren. Für die App-Sperre zusätzlich „Über anderen Apps einblenden“ erlauben.
+10. Firewall, Privates DNS und die Power-Tools brauchen Shizuku. Android vergisst die Firewall-Liste beim Neustart –
+    MobileManager setzt sie wieder, sobald Shizuku läuft.
 
 ## Bekannte Grenzen
 
@@ -81,7 +108,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 - PDFs & Co. im Download-Ordner sieht die App nur mit „Zugriff auf alle Dateien“; ohne dieses Recht verfallen nur Bilder.
 - Ladelimit und Hitzewarnung reagieren ohne Echtzeit-Wächter mit bis zu 15 Minuten Verzögerung.
 - Launcher: Apps lassen sich noch nicht per Drag & Drop verschieben (Hinzufügen geht über den App-Drawer, Ordner über das Kontextmenü).
-  Wischen nach unten öffnet nicht die Benachrichtigungsleiste. Bei Drittanbieter-Launchern zeigt Android die „Zuletzt verwendet“-Ansicht
+  Wischen nach unten öffnet die Benachrichtigungsleiste nur als frei belegbare Geste mit aktiver Bedienungshilfe. Bei Drittanbieter-Launchern zeigt Android die „Zuletzt verwendet“-Ansicht
   des Pixel Launchers und eingeschränkte Übergangsanimationen.
 - WLAN-Regeln brauchen Standortberechtigung und eingeschalteten Standort (Android gibt sonst keinen WLAN-Namen heraus). Der Profilwechsel
   wird beim nächsten Anzeigen des Startbildschirms sichtbar.
@@ -91,3 +118,10 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 - APK-Backup: Viele Play-Store-Apps bestehen aus mehreren Split-APKs – zum Wiederherstellen braucht es dann einen Split-APK-Installer.
   App-Daten werden nicht gesichert.
 - Der Lautsprecher-Reiniger startet nicht, solange Kopfhörer verbunden sind.
+- App-Sperre: Ohne Bedienungshilfe erkennt sie Apps nur über Nutzungsdaten (ca. 1 s Verzögerung). Ohne „Über anderen Apps einblenden“
+  blitzt die gesperrte App kurz auf. Getrennte Fingerabdruck- und Gesichtsprüfung kann Android nicht erzwingen.
+- Firewall: Die System-Netzsperre gilt pro App für alle Netze; WLAN/Mobilfunk-Trennung entsteht durch Umschalten beim Netzwechsel.
+  Zuverlässig sofort nur mit laufendem Prozess (Echtzeit-Wächter), sonst spätestens im 15-Minuten-Check.
+- Device Owner lässt sich nur einrichten, wenn kein Konto angemeldet ist, und ohne Werksreset kaum wieder entfernen.
+- Das Sensor-Protokoll kann nicht sagen, *welche* App Kamera oder Mikrofon nutzt – nur wann, und welche App im Vordergrund war.
+- DNS-over-HTTPS fällt bei Ausfall des Anbieters auf den System-Resolver zurück, damit das Netz nicht stehen bleibt.

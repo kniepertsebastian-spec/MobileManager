@@ -1,5 +1,6 @@
 package app.mobilemanager.launcher.ui
 
+import android.accessibilityservice.AccessibilityService
 import android.content.Intent
 import android.graphics.Rect
 import androidx.compose.ui.graphics.ImageBitmap
@@ -13,6 +14,8 @@ import app.mobilemanager.launcher.data.LauncherHostBridge
 import app.mobilemanager.launcher.data.LauncherLayoutRepository
 import app.mobilemanager.launcher.data.LauncherPreferences
 import app.mobilemanager.launcher.data.LauncherShortcut
+import app.mobilemanager.launcher.data.GestureAction
+import app.mobilemanager.launcher.data.QuickAction
 import app.mobilemanager.launcher.data.LauncherSettings
 import app.mobilemanager.launcher.domain.AppSuggestions
 import app.mobilemanager.launcher.domain.Container
@@ -65,6 +68,12 @@ data class LauncherUiState(
     /** App-Vorschläge oben im Drawer (häufig und zuletzt genutzt). */
     val suggestions: List<LauncherApp> = emptyList(),
     val themedIcons: Boolean = false,
+    /** Phase 4.7 */
+    val grayscale: Boolean = false,
+    val textOnly: Boolean = false,
+    val doubleTapAction: GestureAction = GestureAction.NONE,
+    val swipeDownAction: GestureAction = GestureAction.NONE,
+    val vaultApps: List<LauncherApp> = emptyList(),
 ) {
     val pageSize: Int get() = columns * rows
 }
@@ -89,11 +98,11 @@ class LauncherViewModel @Inject constructor(
 
     val state: StateFlow<LauncherUiState> = combine(
         appsRepository.apps.filterNotNull(),
-        prefs.settings,
+        combine(prefs.settings, bridge.focusModeActive) { settings, focus -> settings to focus },
         active.filterNotNull(),
         layout.profiles,
         prefs.launchHistory,
-    ) { apps, settings, activeProfile, profiles, history -> Inputs(apps, settings, activeProfile, profiles, history) }
+    ) { apps, (settings, focus), activeProfile, profiles, history -> Inputs(apps, settings, activeProfile, profiles, history, focus) }
         .flatMapLatest { input ->
             val profile = input.profiles.firstOrNull { it.id == input.active.profileId } ?: input.profiles.firstOrNull()
             layout.items(profile?.id ?: -1L).map { items -> buildState(input, profile, items) }
@@ -107,6 +116,7 @@ class LauncherViewModel @Inject constructor(
         val active: ActiveProfile,
         val profiles: List<LauncherProfile>,
         val history: List<String>,
+        val focus: Boolean,
     )
 
     init {
@@ -122,8 +132,9 @@ class LauncherViewModel @Inject constructor(
 
     private fun buildState(input: Inputs, profile: LauncherProfile?, items: List<LayoutItem>): LauncherUiState {
         val hidden = profile?.hiddenCategories.orEmpty()
+        val vault = input.settings.vault
         val byKey = input.apps.associateBy { it.key }
-        fun visibleApp(key: String?): LauncherApp? = key?.let(byKey::get)?.takeIf { it.category !in hidden }
+        fun visibleApp(key: String?): LauncherApp? = key?.let(byKey::get)?.takeIf { it.category !in hidden && it.key !in vault }
 
         val childrenByFolder = items.filter { it.container == Container.FOLDER }.groupBy { it.parentId }
         fun cellOf(item: LayoutItem): HomeCell? = if (item.isFolder) {
@@ -143,7 +154,8 @@ class LauncherViewModel @Inject constructor(
         val pages = (0 until pageCount).map { page -> homeCells.filter { it.item.page == page } }
         val dock = if (large) emptyList() else items.filter { it.container == Container.DOCK }.sortedBy { it.position }.mapNotNull(::cellOf)
 
-        val drawerApps = input.apps.filter { it.category !in hidden }
+        val drawerApps = input.apps.filter { it.category !in hidden && it.key !in vault }
+        val minimal = input.settings.minimalInFocus && input.focus
         return LauncherUiState(
             loading = false,
             profile = profile,
@@ -162,6 +174,11 @@ class LauncherViewModel @Inject constructor(
                 AppSuggestions.rank(input.history, byKey.keys, columns).mapNotNull(byKey::get)
             },
             themedIcons = input.settings.themedIcons,
+            grayscale = input.settings.grayscale || minimal,
+            textOnly = input.settings.textOnly || minimal,
+            doubleTapAction = input.settings.doubleTapAction,
+            swipeDownAction = input.settings.swipeDownAction,
+            vaultApps = input.apps.filter { it.key in vault },
         )
     }
 
@@ -214,6 +231,30 @@ class LauncherViewModel @Inject constructor(
     /** Manuelle Profilwahl = neues Basisprofil (Regeln können es weiterhin zeitweise überschreiben). */
     fun selectBaseProfile(profileId: Long) {
         viewModelScope.launch { prefs.update { it.copy(baseProfileId = profileId) } }
+    }
+
+    /* ---------- Phase 4.7 ---------- */
+
+    fun addToVault(app: LauncherApp) {
+        viewModelScope.launch { prefs.update { it.copy(vault = it.vault + app.key) } }
+    }
+
+    fun removeFromVault(app: LauncherApp) {
+        viewModelScope.launch { prefs.update { it.copy(vault = it.vault - app.key) } }
+    }
+
+    /** @return false, wenn die Geste die Bedienungshilfe braucht und diese aus ist. */
+    fun performGesture(action: GestureAction): Boolean = when (action) {
+        GestureAction.NONE, GestureAction.SEARCH -> true
+        GestureAction.LOCK_SCREEN -> bridge.performGlobalAction(AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN)
+        GestureAction.NOTIFICATIONS -> bridge.performGlobalAction(AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS)
+        GestureAction.QUICK_SETTINGS -> bridge.performGlobalAction(AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS)
+    }
+
+    fun quickActions(): List<QuickAction> = bridge.quickActions()
+
+    fun runQuickAction(action: QuickAction, onResult: (String) -> Unit) {
+        viewModelScope.launch { onResult(runCatching { bridge.runQuickAction(action.id) }.getOrElse { "Fehler: ${it.message}" }) }
     }
 
     suspend fun ensureLoaded() {

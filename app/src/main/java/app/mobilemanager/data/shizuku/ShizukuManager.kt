@@ -20,6 +20,11 @@ import rikka.shizuku.Shizuku
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/** Ergebnis eines Shell-Befehls; [error] ist `null` bei Erfolg. */
+data class ShellResult(val code: Int, val output: String, val error: String?) {
+    val ok: Boolean get() = error == null
+}
+
 enum class ShizukuState {
     /** Shizuku-App ist nicht installiert. */
     NOT_INSTALLED,
@@ -129,6 +134,34 @@ class ShizukuManager @Inject constructor(
             "Shizuku-Fehler: ${e.message}"
         }
     }
+
+    /**
+     * Phase 4: Befehl aus der Erlaubtliste ([app.mobilemanager.domain.extras.ShellCommandPolicy]) mit Shell-Rechten.
+     * Wirft nie; Fehler stehen in [ShellResult.error].
+     */
+    suspend fun exec(vararg argv: String): ShellResult {
+        refresh()
+        if (_state.value != ShizukuState.READY) return ShellResult(-10, "", "Shizuku ist nicht aktiv")
+        val service = obtainService() ?: return ShellResult(-11, "", "Shizuku-Dienst nicht erreichbar")
+        return try {
+            val raw = service.exec(arrayOf(*argv))
+            val code = raw.substringBefore('\n').toIntOrNull() ?: -1
+            val output = raw.substringAfter('\n', "").trim()
+            val error = when {
+                code == 0 -> null
+                code == -2 -> "Befehl nicht erlaubt"
+                output.isNotBlank() -> output.lineSequence().first()
+                else -> "Fehlercode $code"
+            }
+            ShellResult(code, output, error)
+        } catch (e: Exception) {
+            // Alter UserService ohne exec() oder abgestürzter Prozess → beim nächsten Mal neu binden.
+            shellService = null
+            ShellResult(-12, "", "Shizuku-Fehler: ${e.message}")
+        }
+    }
+
+    val isReady: Boolean get() = computeState() == ShizukuState.READY
 
     private suspend fun obtainService(): IShellService? = bindMutex.withLock {
         shellService?.takeIf { it.asBinder().pingBinder() }?.let { return it }

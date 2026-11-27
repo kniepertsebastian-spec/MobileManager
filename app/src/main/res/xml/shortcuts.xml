@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Phase 4.6: Launcher-Shortcuts (Long-Press auf das App-Symbol). Wirken nur mit „Externe Steuerung erlauben“. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="tracker_toggle"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_tracker">
+        <intent
+            android:action="app.mobilemanager.action.TRACKER_TOGGLE"
+            android:targetClass="app.mobilemanager.ui.external.ActionActivity"
+            android:targetPackage="app.mobilemanager" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="firewall_toggle"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_firewall">
+        <intent
+            android:action="app.mobilemanager.action.FIREWALL_TOGGLE"
+            android:targetClass="app.mobilemanager.ui.external.ActionActivity"
+            android:targetPackage="app.mobilemanager" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="stop_apps"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_stop_apps">
+        <intent
+            android:action="app.mobilemanager.action.STOP_APPS"
+            android:targetClass="app.mobilemanager.ui.external.ActionActivity"
+            android:targetPackage="app.mobilemanager" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="caffeine"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_caffeine">
+        <intent
+            android:action="app.mobilemanager.action.CAFFEINE"
+            android:targetClass="app.mobilemanager.ui.external.ActionActivity"
+            android:targetPackage="app.mobilemanager" />
+    </shortcut>
+</shortcuts>

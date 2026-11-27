@@ -80,6 +80,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.mobilemanager.launcher.LauncherComponents
+import app.mobilemanager.launcher.data.GestureAction
 import app.mobilemanager.launcher.data.LauncherApp
 import app.mobilemanager.launcher.domain.AppCategory
 import app.mobilemanager.launcher.domain.AppMeta
@@ -272,6 +273,46 @@ private fun OverviewScreen(
                     "Wechselt je nach Bluetooth-Gerät, WLAN oder Uhrzeit das Profil und danach wieder zurück.",
                     settings.autoSwitch,
                 ) { v -> viewModel.updateSettings { it.copy(autoSwitch = v) } }
+            }
+
+            // Phase 4.7: Fokus-Darstellung, Gesten und Tresor
+            SectionCard {
+                Text("Fokus & Gesten", style = MaterialTheme.typography.titleSmall)
+                SwitchLine("Graustufen", "Farblose Icons nehmen Apps den Reiz.", settings.grayscale) { v ->
+                    viewModel.updateSettings { it.copy(grayscale = v) }
+                }
+                SwitchLine("Nur Text", "Startbildschirm als ruhige Textliste statt Icon-Raster.", settings.textOnly) { v ->
+                    viewModel.updateSettings { it.copy(textOnly = v) }
+                }
+                SwitchLine(
+                    "Automatisch bei Fokus-Bremse",
+                    "Graustufen und Textliste, solange die Fokus-Bremse in MobileManager eingeschaltet ist.",
+                    settings.minimalInFocus,
+                ) { v -> viewModel.updateSettings { it.copy(minimalInFocus = v) } }
+                Text("Doppelt tippen", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 8.dp))
+                Chips(
+                    options = GestureAction.entries.map { it to it.label },
+                    selected = { it == settings.doubleTapAction },
+                    onClick = { a -> viewModel.updateSettings { it.copy(doubleTapAction = a) } },
+                )
+                Text("Nach unten wischen", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 8.dp))
+                Chips(
+                    options = GestureAction.entries.map { it to it.label },
+                    selected = { it == settings.swipeDownAction },
+                    onClick = { a -> viewModel.updateSettings { it.copy(swipeDownAction = a) } },
+                )
+                Text(
+                    "Sperren, Benachrichtigungen und Schnelleinstellungen brauchen die Bedienungshilfe " +
+                        "„MobileManager – App-Sperre, Fokus-Bremse & Gesten“.",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+                Text(
+                    "Tresor: Apps im Drawer lange drücken → „In den Tresor“. Geöffnet wird er, indem du in der Suche " +
+                        "„tresor“ eingibst und dich mit Biometrie bestätigst. ${settings.vault.size} Apps im Tresor.",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
             }
 
             NavCard(Icons.AutoMirrored.Filled.Sort, "Homescreen ordnen", "Apps per Knopfdruck in Ordner sortieren, Ungenutztes archivieren") {

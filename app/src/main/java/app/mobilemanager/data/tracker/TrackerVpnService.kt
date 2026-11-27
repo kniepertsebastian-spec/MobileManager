@@ -40,6 +40,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
@@ -50,6 +54,7 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executor
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -69,7 +74,27 @@ object TrackerVpnState {
         if (value) {
             _sessionBlocked.value = 0
             _sessionQueries.value = 0
+            _dohAnswered.value = 0
+            _dohFallbacks.value = 0
         }
+    }
+
+    /** Phase 4.3: „Durchgehend aktives VPN“ und „Verbindungen ohne VPN blockieren“ (nur im laufenden Dienst lesbar). */
+    private val _alwaysOn = MutableStateFlow(false to false)
+    val alwaysOn: StateFlow<Pair<Boolean, Boolean>> = _alwaysOn.asStateFlow()
+
+    internal fun setAlwaysOn(alwaysOn: Boolean, lockdown: Boolean) {
+        _alwaysOn.value = alwaysOn to lockdown
+    }
+
+    /** Phase 4.1: Anfragen, die per DNS-over-HTTPS beantwortet wurden bzw. auf den System-Resolver zurückfielen. */
+    private val _dohAnswered = MutableStateFlow(0)
+    val dohAnswered: StateFlow<Int> = _dohAnswered.asStateFlow()
+    private val _dohFallbacks = MutableStateFlow(0)
+    val dohFallbacks: StateFlow<Int> = _dohFallbacks.asStateFlow()
+
+    internal fun countDoh(ok: Boolean) {
+        if (ok) _dohAnswered.value += 1 else _dohFallbacks.value += 1
     }
 
     internal fun countQuery(blocked: Boolean) {
@@ -126,6 +151,8 @@ class TrackerVpnService : VpnService() {
     private var scope: CoroutineScope? = null
     @Volatile private var running = false
     @Volatile private var matcher = DomainMatcher(emptySet())
+    @Volatile private var dohUrl = ""
+    private val doh = DohClient()
     private val upstream by lazy { UpstreamDns(getSystemService(ConnectivityManager::class.java)) }
     private val appCounts = ConcurrentHashMap<String, AtomicInteger>()
     private val domainCounts = ConcurrentHashMap<String, AtomicInteger>()
@@ -176,6 +203,8 @@ class TrackerVpnService : VpnService() {
         val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         scope = serviceScope
         serviceScope.launch { blocklist.matcher.collect { matcher = it } }
+        serviceScope.launch { settings.settings.collect { dohUrl = it.dohUrl } }
+        TrackerVpnState.setAlwaysOn(isAlwaysOn, isLockdownEnabled)
         serviceScope.launch {
             var shown = -1
             while (isActive) {
@@ -238,7 +267,11 @@ class TrackerVpnService : VpnService() {
      * Nur wenn das scheitert, werden die DNS-Server des Netzes direkt per UDP gefragt.
      */
     private suspend fun forward(packet: UdpPacket, output: FileOutputStream) {
-        val answer = withTimeoutOrNull(SYSTEM_RESOLVER_TIMEOUT_MS) { upstream.systemQuery(packet.payload) }
+        val dohAnswer = dohUrl.takeIf { it.isNotEmpty() }?.let { url ->
+            doh.query(url, upstream.network, packet.payload).also { TrackerVpnState.countDoh(it != null) }
+        }
+        val answer = dohAnswer
+            ?: withTimeoutOrNull(SYSTEM_RESOLVER_TIMEOUT_MS) { upstream.systemQuery(packet.payload) }
             ?: socketQuery(packet.payload)
         if (answer != null && answer.size in DNS_HEADER_SIZE..MAX_UDP_PAYLOAD) {
             // Antworten aus dem System-Cache können eine fremde Transaktions-ID tragen.
@@ -357,6 +390,48 @@ class TrackerVpnService : VpnService() {
         private val FORWARD_DISPATCHER = Dispatchers.IO.limitedParallelism(32)
 
         internal fun isVpnDns(address: InetAddress) = address.hostAddress == VPN_DNS
+    }
+}
+
+/**
+ * Phase 4.1: DNS-over-HTTPS (RFC 8484, POST application/dns-message). Der Client ist an das echte Netz gebunden;
+ * die eigene App ist ohnehin vom VPN ausgenommen, die Auflösung des DoH-Hosts läuft also nicht im Kreis.
+ */
+private class DohClient {
+    @Volatile private var client: OkHttpClient? = null
+    @Volatile private var clientNetwork: Network? = null
+
+    fun query(url: String, network: Network?, query: ByteArray): ByteArray? = runCatching {
+        val request = Request.Builder()
+            .url(url)
+            .header("Accept", DNS_MESSAGE)
+            .post(query.toRequestBody(DNS_MESSAGE_TYPE))
+            .build()
+        clientFor(network).newCall(request).execute().use { response ->
+            if (!response.isSuccessful) return@use null
+            response.body.bytes().takeIf { it.size >= 12 }
+        }
+    }.getOrNull()
+
+    @Synchronized
+    private fun clientFor(network: Network?): OkHttpClient {
+        client?.takeIf { clientNetwork == network }?.let { return it }
+        val builder = OkHttpClient.Builder()
+            .connectTimeout(3, TimeUnit.SECONDS)
+            .callTimeout(5, TimeUnit.SECONDS)
+        if (network != null) {
+            builder.socketFactory(network.socketFactory)
+            builder.dns { host -> network.getAllByName(host).toList() }
+        }
+        return builder.build().also {
+            client = it
+            clientNetwork = network
+        }
+    }
+
+    private companion object {
+        const val DNS_MESSAGE = "application/dns-message"
+        val DNS_MESSAGE_TYPE = DNS_MESSAGE.toMediaType()
     }
 }
 

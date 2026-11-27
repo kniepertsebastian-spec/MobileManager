@@ -204,6 +204,23 @@ class AppNotifications @Inject constructor(
         MainActivity.DESTINATION_CLEANER,
     )
 
+    /** Phase 4: Hinweise aus Netzwerk-Wächter, App-Sperre und Selbstschutz (Kanal „Sicherheit“). */
+    fun showInfo(id: Int, title: String, text: String, destination: String) =
+        show(id, title, text, destination, CHANNEL_SECURITY)
+
+    fun cancel(id: Int) = NotificationManagerCompat.from(context).cancel(id)
+
+    /** Dauerhafte, stille Benachrichtigung für Hilfsdienste (z. B. Koffein-Modus). */
+    fun serviceNotification(title: String, text: String, destination: String): Notification =
+        NotificationCompat.Builder(context, CHANNEL_GUARD_SERVICE)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setContentIntent(pendingIntent(ID_SERVICE_TAP, destination))
+            .setOngoing(true)
+            .setSilent(true)
+            .build()
+
     private fun pendingIntent(id: Int, destination: String): PendingIntent {
         val intent = Intent(context, MainActivity::class.java)
             .putExtra(MainActivity.EXTRA_DESTINATION, destination)
@@ -256,6 +273,16 @@ class AppNotifications @Inject constructor(
         private const val ID_TRACKER_CONFIGURE = 1010
         private const val ID_TRACKER_REVOKED = 1011
         const val ID_FOREGROUND_MONITOR = 1012
+        const val ID_UNSAFE_WIFI = 1013
+        const val ID_DATA_LIMIT = 1014
+        const val ID_WATCHDOG = 1015
+        const val ID_PERMISSION_DIFF = 1016
+        const val ID_USB = 1017
+        const val ID_LOCKER = 1018
+        const val ID_CAFFEINE = 1019
+        const val ID_BLOCKLIST = 1020
+        const val ID_TEMP_PERMISSION = 1021
+        private const val ID_SERVICE_TAP = 1099
         private const val MAX_DIGEST_LINES = 7
     }
 }

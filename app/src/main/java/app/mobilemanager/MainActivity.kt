@@ -14,6 +14,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
+import app.mobilemanager.ui.locker.LockActivity
 import app.mobilemanager.ui.navigation.MobileManagerNavHost
 import app.mobilemanager.ui.navigation.Routes
 import app.mobilemanager.ui.theme.MobileManagerTheme
@@ -54,6 +57,12 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         viewModel.onResume()
+        lifecycleScope.launch {
+            if (viewModel.selfNeedsUnlock()) {
+                setRecentsScreenshotEnabled(false)
+                startActivity(LockActivity.intent(this@MainActivity, packageName))
+            }
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -72,6 +81,10 @@ class MainActivity : ComponentActivity() {
             DESTINATION_EXPIRED_REVIEW -> Routes.review(Routes.REVIEW_MODE_EXPIRED)
             DESTINATION_TRACKER -> Routes.EXTRAS_TRACKER
             DESTINATION_EXTRAS -> Routes.EXTRAS
+            DESTINATION_NETWORK -> Routes.NETWORK
+            DESTINATION_LOCKER -> Routes.LOCKER
+            DESTINATION_PROTECTION -> Routes.PROTECTION
+            DESTINATION_POWER_TOOLS -> Routes.POWER_TOOLS
             else -> null
         }
         route?.let(viewModel::setPendingDestination)
@@ -88,5 +101,9 @@ class MainActivity : ComponentActivity() {
         const val DESTINATION_EXPIRED_REVIEW = "expired_review"
         const val DESTINATION_TRACKER = "tracker"
         const val DESTINATION_EXTRAS = "extras"
+        const val DESTINATION_NETWORK = "network"
+        const val DESTINATION_LOCKER = "locker"
+        const val DESTINATION_PROTECTION = "protection"
+        const val DESTINATION_POWER_TOOLS = "power_tools"
     }
 }
