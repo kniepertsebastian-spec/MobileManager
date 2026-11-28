@@ -14,6 +14,7 @@ android {
     defaultConfig {
         minSdk = 33
         consumerProguardFiles("consumer-rules.pro")
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     compileOptions {
@@ -31,6 +32,9 @@ kotlin {
         freeCompilerArgs.add("-Xannotation-default-target=param-property")
     }
 }
+
+// Roadmap v2 B.1: exportierte Schemas für den Migrations-Test (MigrationTestHelper) bereitstellen.
+android.sourceSets.getByName("androidTest").assets.directories.add("$projectDir/schemas")
 
 ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
@@ -60,5 +64,13 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.kotlinx.coroutines.android)
 
+    // room-testing braucht kotlinx-serialization ≥ 1.8.1 (siehe :app).
+    constraints {
+        implementation(libs.kotlinx.serialization.core) { because("room-testing 2.8 braucht ≥ 1.8.1") }
+    }
+
     testImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.room.testing)
 }

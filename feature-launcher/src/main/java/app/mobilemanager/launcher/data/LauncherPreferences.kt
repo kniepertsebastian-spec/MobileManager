@@ -1,5 +1,7 @@
 package app.mobilemanager.launcher.data
 
+import app.mobilemanager.launcher.R
+import androidx.annotation.StringRes
 import android.content.Context
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -42,12 +44,12 @@ data class LauncherSettings(
 }
 
 /** Phase 4.7: frei belegbare Homescreen-Gesten. Sperren & Benachrichtigungen laufen über die Bedienungshilfe. */
-enum class GestureAction(val label: String) {
-    NONE("Keine"),
-    LOCK_SCREEN("Display sperren"),
-    NOTIFICATIONS("Benachrichtigungen"),
-    QUICK_SETTINGS("Schnelleinstellungen"),
-    SEARCH("App-Suche"),
+enum class GestureAction(@StringRes val labelRes: Int) {
+    NONE(R.string.launcher_gesture_none),
+    LOCK_SCREEN(R.string.launcher_gesture_lock),
+    NOTIFICATIONS(R.string.launcher_gesture_notifications),
+    QUICK_SETTINGS(R.string.launcher_gesture_quick_settings),
+    SEARCH(R.string.launcher_gesture_search),
     ;
 
     companion object {

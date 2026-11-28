@@ -103,6 +103,12 @@ ksp {
 }
 
 dependencies {
+    // Roadmap v2 C.3: Leak-Suche nur auf Wunsch (./gradlew -Pleakcanary=true …) – sonst landet LeakCanary
+    // samt eigenem Starter-Symbol im normalen Debug-APK.
+    if (providers.gradleProperty("leakcanary").orNull == "true") {
+        debugImplementation(libs.leakcanary)
+    }
+
     // Phase 3: Custom Launcher als eigenständiges Feature-Modul
     implementation(project(":feature-launcher"))
 

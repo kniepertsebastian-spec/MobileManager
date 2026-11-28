@@ -1,5 +1,8 @@
 package app.mobilemanager.launcher.domain
 
+import androidx.annotation.StringRes
+import app.mobilemanager.launcher.R
+
 /** Wo ein Element liegt. */
 enum class Container(val code: Int) {
     HOME(0), DOCK(1), FOLDER(2);
@@ -35,10 +38,10 @@ data class LauncherProfile(
     val largeIcons: Boolean,
 )
 
-enum class RuleType(val label: String) {
-    BLUETOOTH("Bluetooth-Gerät verbunden"),
-    WIFI("WLAN verbunden"),
-    TIME("Uhrzeit"),
+enum class RuleType(@StringRes val labelRes: Int) {
+    BLUETOOTH(R.string.launcher_rule_type_bluetooth),
+    WIFI(R.string.launcher_rule_type_wifi),
+    TIME(R.string.launcher_rule_type_time),
 }
 
 /**

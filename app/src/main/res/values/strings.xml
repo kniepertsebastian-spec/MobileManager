@@ -96,4 +96,14 @@
         <item quantity="other">%1$d neue Sicherheitsereignisse</item>
     </plurals>
     <string name="dashboard_open_guard">Wächter öffnen</string>
+    <string name="exif_share_failed">Bilder konnten nicht verarbeitet werden</string>
+    <string name="exif_share_chooser">Ohne Metadaten teilen</string>
+    <plurals name="exif_share_done">
+        <item quantity="one">%1$d Bild ohne Metadaten</item>
+        <item quantity="other">%1$d Bilder ohne Metadaten</item>
+    </plurals>
+    <plurals name="exif_share_skipped">
+        <item quantity="one">(%1$d übersprungen)</item>
+        <item quantity="other">(%1$d übersprungen)</item>
+    </plurals>
 </resources>

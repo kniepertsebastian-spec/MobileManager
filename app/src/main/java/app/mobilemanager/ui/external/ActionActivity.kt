@@ -38,12 +38,13 @@ class ActionActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val action = intent?.action?.removePrefix(PREFIX)
+        // Nur vollständige, bekannte Aktionen – keine Extras, keine Kurzformen.
+        val action = intent?.action?.takeIf { it.startsWith(PREFIX) }?.removePrefix(PREFIX)?.takeIf { it in ACTIONS }
         lifecycleScope.launch {
             val message = if (!protection.current().externalControl) {
                 "Externe Steuerung ist in MobileManager ausgeschaltet (Selbstschutz → Externe Steuerung)"
             } else {
-                runCatching { perform(action) }.getOrElse { "Fehler: ${it.message}" }
+                runCatching { perform(action) }.getOrElse { "Aktion fehlgeschlagen" }
             }
             message?.let { Toast.makeText(applicationContext, it, Toast.LENGTH_SHORT).show() }
             finish()

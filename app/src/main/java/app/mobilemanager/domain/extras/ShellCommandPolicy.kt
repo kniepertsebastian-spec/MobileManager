@@ -26,6 +26,16 @@ object ShellCommandPolicy {
 
     fun isHostname(value: String) = HOSTNAME.matches(value)
 
+    /**
+     * Binder-Aufrufer-Prüfung für den Shizuku-UserService: Nur eine uid, zu der MobileManager selbst
+     * gehört, darf Befehle auslösen. Shared-UIDs anderer Pakete oder fremde Apps werden abgewiesen.
+     */
+    fun isTrustedCaller(callingUid: Int, ownPackage: String, packagesForUid: (Int) -> Array<String>?): Boolean {
+        if (callingUid < 0 || callingUid % PER_USER_RANGE < FIRST_APPLICATION_UID) return false
+        val packages = runCatching { packagesForUid(callingUid) }.getOrNull() ?: return false
+        return packages.size == 1 && packages[0] == ownPackage
+    }
+
     fun isAllowed(argv: List<String>): Boolean {
         if (argv.isEmpty() || argv.any { it.isEmpty() || it.length > 256 || it.any(Char::isISOControl) }) return false
         return when (argv[0]) {
@@ -74,6 +84,8 @@ object ShellCommandPolicy {
         }
     }
 
+    private const val FIRST_APPLICATION_UID = 10_000
+    private const val PER_USER_RANGE = 100_000
     private val BOOLEANS = setOf("true", "false")
     private val PRIVATE_DNS_KEYS = setOf("private_dns_mode", "private_dns_specifier")
 }

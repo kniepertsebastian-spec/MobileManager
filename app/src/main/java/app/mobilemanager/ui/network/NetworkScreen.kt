@@ -93,7 +93,7 @@ class NetworkViewModel @Inject constructor(
     fun refresh() {
         shizuku.refresh()
         viewModelScope.launch { _apps.value = apps.getLaunchableApps() }
-        _usage.value = controller.mobileBytesToday() to controller.wifiBytesToday()
+        viewModelScope.launch { _usage.value = controller.mobileBytesToday() to controller.wifiBytesToday() }
     }
 
     fun update(transform: (NetworkPolicySettings) -> NetworkPolicySettings) {

@@ -33,12 +33,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
@@ -46,6 +46,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.FileDescriptor
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
@@ -165,6 +166,10 @@ class TrackerVpnService : VpnService() {
     private var tun: ParcelFileDescriptor? = null
     private var scope: CoroutineScope? = null
     private var readThread: Thread? = null
+    /** Self-Pipe: weckt den Lese-Thread beim Stoppen – so kann poll() ohne Timeout (-1) schlafen. */
+    private var wakePipe: Array<FileDescriptor>? = null
+    /** Signal „es gibt neue Zähler“: Ohne DNS-Verkehr schläft die Flush-Schleife ohne Timer. */
+    private val statsDirty = Channel<Unit>(Channel.CONFLATED)
     @Volatile private var running = false
     @Volatile private var matcher = DomainMatcher(emptySet())
     @Volatile private var dohUrl = ""
@@ -223,7 +228,8 @@ class TrackerVpnService : VpnService() {
         TrackerVpnState.setAlwaysOn(isAlwaysOn, isLockdownEnabled)
         serviceScope.launch {
             var shown = -1
-            while (isActive) {
+            for (signal in statsDirty) {
+                // Bündeln: höchstens alle 30 s schreiben, aber nur, wenn es seit dem letzten Mal Anfragen gab.
                 delay(FLUSH_INTERVAL_MS)
                 flushStats()
                 val blocked = TrackerVpnState.sessionBlocked.value
@@ -233,27 +239,51 @@ class TrackerVpnService : VpnService() {
                 }
             }
         }
-        readThread = Thread({ readLoop(fd) }, "tracker-vpn").also { it.start() }
+        val pipe = runCatching { Os.pipe() }.getOrNull()
+        wakePipe = pipe
+        readThread = Thread({ readLoop(fd, pipe?.get(0)) }, "tracker-vpn").also { it.start() }
         return true
     }
 
-    private fun readLoop(fd: ParcelFileDescriptor) {
+    private fun readLoop(fd: ParcelFileDescriptor, wake: FileDescriptor?) {
         val input = FileInputStream(fd.fileDescriptor)
         val output = FileOutputStream(fd.fileDescriptor)
         val poll = StructPollfd().apply {
             this.fd = fd.fileDescriptor
             events = OsConstants.POLLIN.toShort()
         }
+        val wakePoll = wake?.let { StructPollfd().apply { this.fd = it; events = OsConstants.POLLIN.toShort() } }
+        val fds = listOfNotNull(poll, wakePoll).toTypedArray()
+        // Ohne Self-Pipe (sehr unwahrscheinlich) bleibt ein Sicherheits-Timeout, damit der Thread endet.
+        val timeout = if (wakePoll != null) -1 else FALLBACK_POLL_TIMEOUT_MS
         val buffer = ByteArray(MAX_PACKET)
+        try {
+            pollLoop(fds, poll, wakePoll, timeout, input, output, buffer)
+        } finally {
+            wake?.let { runCatching { Os.close(it) } }
+        }
+    }
+
+    private fun pollLoop(
+        fds: Array<StructPollfd>,
+        poll: StructPollfd,
+        wakePoll: StructPollfd?,
+        timeout: Int,
+        input: FileInputStream,
+        output: FileOutputStream,
+        buffer: ByteArray,
+    ) {
         while (running && !Thread.currentThread().isInterrupted) {
-            poll.revents = 0
+            fds.forEach { it.revents = 0 }
             val ready = try {
-                Os.poll(arrayOf(poll), POLL_TIMEOUT_MS)
+                Os.poll(fds, timeout)
             } catch (e: ErrnoException) {
                 if (e.errno == OsConstants.EINTR) continue else break
             }
+            if (wakePoll != null && wakePoll.revents.toInt() != 0) break
             if (ready <= 0) continue
             if (poll.revents.toInt() and (OsConstants.POLLERR or OsConstants.POLLHUP or OsConstants.POLLNVAL) != 0) break
+            if (poll.revents.toInt() and OsConstants.POLLIN == 0) continue
             val length = try {
                 input.read(buffer)
             } catch (_: IOException) {
@@ -269,6 +299,7 @@ class TrackerVpnService : VpnService() {
         val question = DnsMessages.parseQuestion(packet.payload) ?: return
         val blocked = matcher.isBlocked(question.name)
         TrackerVpnState.countQuery(blocked)
+        statsDirty.trySend(Unit)
         if (blocked) {
             DnsMessages.errorResponse(packet.payload, DnsMessages.RCODE_NXDOMAIN)?.let { reply(packet, it, output) }
             record(packet, question.name)
@@ -382,6 +413,12 @@ class TrackerVpnService : VpnService() {
         scope = null
         readThread?.interrupt()
         readThread = null
+        wakePipe?.let { pipe ->
+            // Schreibende schließen → POLLHUP am Leseende weckt poll(); danach beide Enden freigeben.
+            // Das Leseende schließt der Lese-Thread selbst, sobald er poll() verlassen hat.
+            runCatching { Os.close(pipe[1]) }
+        }
+        wakePipe = null
         // Kein Blockieren des Main-Threads: Snapshot jetzt ziehen, asynchron im App-Scope schreiben.
         if (wasRunning) {
             val snapshot = takeStats()
@@ -404,7 +441,7 @@ class TrackerVpnService : VpnService() {
         private const val DNS_PORT = 53
         private const val MAX_PACKET = 32_767
         private const val MAX_DNS_RESPONSE = 4_096
-        private const val POLL_TIMEOUT_MS = 1_000
+        private const val FALLBACK_POLL_TIMEOUT_MS = 5_000
         private const val UPSTREAM_TIMEOUT_MS = 2_000
         private const val SYSTEM_RESOLVER_TIMEOUT_MS = 6_000L
         private const val DNS_HEADER_SIZE = 12

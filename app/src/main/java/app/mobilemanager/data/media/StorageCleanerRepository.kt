@@ -34,9 +34,10 @@ class StorageCleanerRepository @Inject constructor(
 
     val lastStorageCleanup: Flow<CleanupHistoryEntity?> = historyDao.observeLastStorageCleanup()
 
-    fun storageInfo(): StorageInfo {
+    /** StatFs liest vom Dateisystem – daher auf [Dispatchers.IO]. */
+    suspend fun storageInfo(): StorageInfo = withContext(Dispatchers.IO) {
         val stat = StatFs(Environment.getDataDirectory().path)
-        return StorageInfo(freeBytes = stat.availableBytes, totalBytes = stat.totalBytes)
+        StorageInfo(freeBytes = stat.availableBytes, totalBytes = stat.totalBytes)
     }
 
     /**

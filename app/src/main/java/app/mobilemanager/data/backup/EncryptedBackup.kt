@@ -4,27 +4,22 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.net.Uri
 import app.mobilemanager.data.local.AppDatabase
-import app.mobilemanager.domain.extras.LockerCrypto
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
-import java.security.SecureRandom
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
-import javax.crypto.Cipher
-import javax.crypto.spec.GCMParameterSpec
-import javax.crypto.spec.SecretKeySpec
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
  * Phase 4.6: verschlüsseltes Komplett-Backup (`.mmbackup`) aller Einstellungen, Regeln, Launcher-Layouts,
- * Blocklisten und Protokolle. Format: „MMBK1“ + Salt (16) + IV (12) + AES-256-GCM(ZIP); Schlüssel per PBKDF2
- * aus dem Passwort. Die Geheimnisse der App-Sperre bleiben bewusst draußen (gerätegebunden).
+ * Blocklisten und Protokolle. Verschlüsselung siehe [BackupCrypto]. Die Geheimnisse der App-Sperre bleiben
+ * bewusst draußen (gerätegebunden).
  *
  * Wiederherstellen läuft zweistufig: Dateien werden entschlüsselt und geprüft bereitgelegt, die App beendet sich,
  * und beim nächsten Start ersetzt [applyPendingRestore] die Daten – bevor DataStore oder Room sie öffnen.
@@ -47,18 +42,8 @@ class EncryptedBackup @Inject constructor(@ApplicationContext private val contex
                     count++
                 }
             }
-            val salt = LockerCrypto.newSalt()
-            val iv = ByteArray(IV_BYTES).also(SecureRandom()::nextBytes)
-            val cipher = Cipher.getInstance(TRANSFORMATION)
-            cipher.init(Cipher.ENCRYPT_MODE, key(password, salt), GCMParameterSpec(TAG_BITS, iv))
-            cipher.updateAAD(MAGIC)
-            val encrypted = cipher.doFinal(zipBytes.toByteArray())
-            context.contentResolver.openOutputStream(target, "wt")?.use { out ->
-                out.write(MAGIC)
-                out.write(salt)
-                out.write(iv)
-                out.write(encrypted)
-            } ?: error("Zieldatei kann nicht geschrieben werden")
+            val sealed = BackupCrypto.seal(zipBytes.toByteArray(), password.toCharArray())
+            context.contentResolver.openOutputStream(target, "wt")?.use { out -> out.write(sealed) } ?: error("Zieldatei kann nicht geschrieben werden")
             count
         }
     }
@@ -66,34 +51,75 @@ class EncryptedBackup @Inject constructor(@ApplicationContext private val contex
     /** Entschlüsselt und legt die Wiederherstellung für den nächsten Start bereit. */
     suspend fun prepareRestore(source: Uri, password: String): Result<Int> = withContext(Dispatchers.IO) {
         runCatching {
-            val bytes = context.contentResolver.openInputStream(source)?.use { it.readBytes() } ?: error("Datei kann nicht gelesen werden")
-            require(bytes.size > MAGIC.size + 16 + IV_BYTES && bytes.copyOfRange(0, MAGIC.size).contentEquals(MAGIC)) {
-                "Keine MobileManager-Sicherung"
-            }
-            val salt = bytes.copyOfRange(MAGIC.size, MAGIC.size + 16)
-            val iv = bytes.copyOfRange(MAGIC.size + 16, MAGIC.size + 16 + IV_BYTES)
-            val cipher = Cipher.getInstance(TRANSFORMATION)
-            cipher.init(Cipher.DECRYPT_MODE, key(password, salt), GCMParameterSpec(TAG_BITS, iv))
-            cipher.updateAAD(MAGIC)
-            val zip = runCatching { cipher.doFinal(bytes, MAGIC.size + 16 + IV_BYTES, bytes.size - MAGIC.size - 16 - IV_BYTES) }
-                .getOrElse { error("Falsches Passwort oder beschädigte Datei") }
+            val bytes = readLimited(source)
+            val zip = BackupCrypto.open(bytes, password.toCharArray()).getOrElse { throw it }
             val staging = File(context.filesDir, STAGING).apply { deleteRecursively(); mkdirs() }
-            var count = 0
-            ZipInputStream(ByteArrayInputStream(zip)).use { input ->
-                while (true) {
-                    val entry = input.nextEntry ?: break
-                    // Nur bekannte Ziele, keine Pfad-Tricks („../“).
-                    require(isAllowed(entry.name)) { "Unerwarteter Inhalt: ${entry.name}" }
-                    val out = File(staging, entry.name)
-                    out.parentFile?.mkdirs()
-                    out.outputStream().use { input.copyTo(it) }
-                    count++
-                }
+            val count = runCatching { unpack(zip, staging) }.getOrElse {
+                staging.deleteRecursively()
+                throw it
             }
-            require(count > 0) { "Sicherung ist leer" }
             File(staging, READY_MARKER).createNewFile()
             count
         }
+    }
+
+    /** Verwirft eine vorbereitete, noch nicht eingespielte Wiederherstellung. */
+    fun cancelPendingRestore() {
+        File(context.filesDir, STAGING).deleteRecursively()
+    }
+
+    private fun readLimited(source: Uri): ByteArray {
+        val input = context.contentResolver.openInputStream(source) ?: error("Datei kann nicht gelesen werden")
+        return input.use {
+            val out = ByteArrayOutputStream()
+            val buffer = ByteArray(64 * 1024)
+            var total = 0L
+            while (true) {
+                val read = it.read(buffer)
+                if (read < 0) break
+                total += read
+                require(total <= MAX_BACKUP_BYTES) { "Datei ist zu groß für eine MobileManager-Sicherung" }
+                out.write(buffer, 0, read)
+            }
+            out.toByteArray()
+        }
+    }
+
+    /** Entpackt nur bekannte Ziele, prüft Pfade und begrenzt die entpackte Größe (Zip-Bombe). */
+    private fun unpack(zip: ByteArray, staging: File): Int {
+        val root = staging.canonicalFile
+        var count = 0
+        var total = 0L
+        ZipInputStream(ByteArrayInputStream(zip)).use { input ->
+            while (true) {
+                val entry = input.nextEntry ?: break
+                require(!entry.isDirectory && isAllowed(entry.name)) { "Unerwarteter Inhalt: ${entry.name.take(80)}" }
+                require(++count <= MAX_ENTRIES) { "Sicherung enthält zu viele Dateien" }
+                val out = File(root, entry.name).canonicalFile
+                require(out.path.startsWith(root.path + File.separator)) { "Unerwarteter Pfad: ${entry.name.take(80)}" }
+                out.parentFile?.mkdirs()
+                out.outputStream().use { sink ->
+                    val buffer = ByteArray(64 * 1024)
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        total += read
+                        require(total <= MAX_UNPACKED_BYTES) { "Sicherung ist zu groß" }
+                        sink.write(buffer, 0, read)
+                    }
+                }
+                if (entry.name.startsWith("databases/")) {
+                    require(isSqlite(out)) { "Beschädigte Datenbank in der Sicherung" }
+                }
+            }
+        }
+        require(count > 0) { "Sicherung ist leer" }
+        return count
+    }
+
+    private fun isSqlite(file: File): Boolean = file.inputStream().use { input ->
+        val header = ByteArray(SQLITE_HEADER.size)
+        input.read(header) == header.size && header.contentEquals(SQLITE_HEADER)
     }
 
     private fun checkpoint(name: String) {
@@ -106,16 +132,12 @@ class EncryptedBackup @Inject constructor(@ApplicationContext private val contex
         }
     }
 
-    private fun key(password: String, salt: ByteArray) =
-        SecretKeySpec(LockerCrypto.pbkdf2(password.toCharArray(), salt, KDF_ITERATIONS), "AES")
-
     companion object {
-        private val MAGIC = "MMBK1".toByteArray()
-        private const val TRANSFORMATION = "AES/GCM/NoPadding"
-        private const val IV_BYTES = 12
-        private const val TAG_BITS = 128
-        private const val KDF_ITERATIONS = 200_000
         const val MIN_PASSWORD = 8
+        private const val MAX_BACKUP_BYTES = 256L * 1024 * 1024
+        private const val MAX_UNPACKED_BYTES = 512L * 1024 * 1024
+        private const val MAX_ENTRIES = 512
+        private val SQLITE_HEADER = "SQLite format 3\u0000".toByteArray(Charsets.US_ASCII)
         private const val STAGING = "restore_pending"
         private const val READY_MARKER = ".ready"
         private const val LAUNCHER_DB = "launcher.db"
@@ -133,8 +155,8 @@ class EncryptedBackup @Inject constructor(@ApplicationContext private val contex
             File(context.filesDir, "blocklists").listFiles()?.filter(File::isFile)?.forEach { add("files/blocklists/${it.name}" to it) }
         }
 
-        private fun isAllowed(name: String): Boolean {
-            if (name.contains("..") || name.startsWith("/")) return false
+        internal fun isAllowed(name: String): Boolean {
+            if (name.contains("..") || name.startsWith("/") || name.contains('\\') || name.any(Char::isISOControl)) return false
             return (name.startsWith("datastore/") && name.endsWith(".preferences_pb") && name.substringAfter('/') !in EXCLUDED_STORES) ||
                 name == "databases/${AppDatabase.NAME}" || name == "databases/$LAUNCHER_DB" ||
                 name == "files/tracker_import.txt" || (name.startsWith("files/blocklists/") && name.count { it == '/' } == 2)

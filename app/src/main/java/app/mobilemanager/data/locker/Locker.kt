@@ -110,6 +110,21 @@ class LockerRepository @Inject constructor(
         val NFC_HASH = stringPreferencesKey("nfc_hash")
         val NFC_SALT = stringPreferencesKey("nfc_salt")
         val RECOVERY = stringSetPreferencesKey("recovery_hashes")
+        val FAILURES = intPreferencesKey("failures")
+        val LOCKOUT_UNTIL = longPreferencesKey("lockout_until")
+    }
+
+    /** Fehlversuche überdauern einen Prozess-Neustart – sonst ließe sich die Sperrzeit per „Beenden erzwingen“ umgehen. */
+    suspend fun failureState(): Pair<Int, Long> {
+        val p = context.lockerStore.data.first()
+        return (p[Keys.FAILURES] ?: 0) to (p[Keys.LOCKOUT_UNTIL] ?: 0L)
+    }
+
+    suspend fun saveFailureState(failures: Int, lockoutUntil: Long) {
+        context.lockerStore.edit {
+            it[Keys.FAILURES] = failures
+            it[Keys.LOCKOUT_UNTIL] = lockoutUntil
+        }
     }
 
     val settings: Flow<LockerSettings> = context.lockerStore.data.map(::fromPrefs)
@@ -264,6 +279,14 @@ class LockerController @Inject constructor(
     }
 
     init {
+        scope.launch {
+            val (savedFailures, savedUntil) = runCatching { repository.failureState() }.getOrDefault(0 to 0L)
+            if (savedFailures > failures) {
+                failures = savedFailures
+                // Uhr zurückgestellt? Höchstens die maximale Sperrzeit ab jetzt.
+                lockedOutUntil = maxOf(lockedOutUntil, LockerPolicy.clampLockout(savedUntil, System.currentTimeMillis()))
+            }
+        }
         ContextCompat.registerReceiver(
             context,
             screenReceiver,
@@ -338,8 +361,11 @@ class LockerController @Inject constructor(
         unlockedUntil[pkg] = until
         // Systembildschirme werden gemeinsam freigegeben (Einstellungen öffnen oft den Installer und umgekehrt).
         if (pkg in LockerPolicy.SYSTEM_SCREENS) LockerPolicy.SYSTEM_SCREENS.forEach { unlockedUntil[it] = until }
-        failures = 0
-        lockedOutUntil = 0
+        if (failures != 0 || lockedOutUntil != 0L) {
+            failures = 0
+            lockedOutUntil = 0
+            scope.launch { runCatching { repository.saveFailureState(0, 0L) } }
+        }
         main.post { shield.dismiss() }
     }
 
@@ -356,6 +382,8 @@ class LockerController @Inject constructor(
     fun recordFailure(pkg: String, factor: String) {
         failures++
         lockedOutUntil = System.currentTimeMillis() + LockerPolicy.lockoutMillis(failures)
+        val (count, until) = failures to lockedOutUntil
+        scope.launch { runCatching { repository.saveFailureState(count, until) } }
         val threshold = settings.value?.alertAfterFailures ?: 3
         if (threshold > 0 && failures == threshold) {
             scope.launch {

@@ -1,5 +1,10 @@
 package app.mobilemanager.launcher.ui
 
+import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.Role
+import app.mobilemanager.launcher.R
+import androidx.compose.ui.res.stringResource
 import android.app.AlarmManager
 import android.app.WallpaperColors
 import android.app.WallpaperManager
@@ -118,7 +123,8 @@ fun AtAGlance(
             style = text.style(24f),
             modifier = Modifier
                 .clip(RoundedCornerShape(12.dp))
-                .clickable {
+                .minimumInteractiveComponentSize()
+                .clickable(role = Role.Button, onClickLabel = stringResource(R.string.launcher_a11y_open_calendar)) {
                     onStartIntent(Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_CALENDAR))
                 }
                 .padding(horizontal = 4.dp, vertical = 2.dp),
@@ -138,7 +144,8 @@ private fun GlanceChip(icon: ImageVector, label: String, text: WallpaperText, on
     Row(
         Modifier
             .clip(RoundedCornerShape(12.dp))
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .then(if (onClick != null) Modifier.minimumInteractiveComponentSize().clickable(role = Role.Button, onClick = onClick) else Modifier)
+            .semantics(mergeDescendants = true) {}
             .padding(horizontal = 4.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -162,7 +169,7 @@ private fun glanceNow(context: Context): GlanceInfo {
     val scale = battery?.getIntExtra(BatteryManager.EXTRA_SCALE, 100) ?: 100
     val charging = if (plugged && level >= 0 && scale > 0) {
         val percent = level * 100 / scale
-        if (percent >= 100) "Vollständig geladen" else "Lädt · $percent %"
+        if (percent >= 100) context.getString(R.string.launcher_glance_charged) else context.getString(R.string.launcher_glance_charging, percent)
     } else {
         null
     }

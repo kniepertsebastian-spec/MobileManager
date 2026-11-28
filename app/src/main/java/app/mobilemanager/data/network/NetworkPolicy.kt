@@ -1,5 +1,6 @@
 package app.mobilemanager.data.network
 
+import kotlinx.coroutines.withContext
 import app.mobilemanager.di.AppCoroutines
 import android.app.PendingIntent
 import android.app.usage.NetworkStatsManager
@@ -410,17 +411,20 @@ class NetworkPolicyController @Inject constructor(
     }
 
     /** Mobile Daten seit Mitternacht in Bytes (NetworkStatsManager, braucht den Nutzungszugriff). */
-    fun mobileBytesToday(): Long? = bytesToday(NetworkCapabilities.TRANSPORT_CELLULAR)
+    suspend fun mobileBytesToday(): Long? = bytesToday(NetworkCapabilities.TRANSPORT_CELLULAR)
 
-    fun wifiBytesToday(): Long? = bytesToday(NetworkCapabilities.TRANSPORT_WIFI)
+    suspend fun wifiBytesToday(): Long? = bytesToday(NetworkCapabilities.TRANSPORT_WIFI)
 
-    private fun bytesToday(transport: Int): Long? = runCatching {
-        val nsm = context.getSystemService(NetworkStatsManager::class.java)
-        val start = LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-        // Die Netzwerktyp-Werte von NetworkStatsManager entsprechen den Transport-Konstanten (Mobil = 0, WLAN = 1).
-        val bucket = nsm.querySummaryForDevice(transport, null, start, System.currentTimeMillis())
-        bucket.rxBytes + bucket.txBytes
-    }.getOrNull()
+    /** NetworkStatsManager liest von der Platte – nie auf dem Main-Thread (StrictMode). */
+    private suspend fun bytesToday(transport: Int): Long? = withContext(Dispatchers.IO) {
+        runCatching {
+            val nsm = context.getSystemService(NetworkStatsManager::class.java)
+            val start = LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            // Die Netzwerktyp-Werte von NetworkStatsManager entsprechen den Transport-Konstanten (Mobil = 0, WLAN = 1).
+            val bucket = nsm.querySummaryForDevice(transport, null, start, System.currentTimeMillis())
+            bucket.rxBytes + bucket.txBytes
+        }.getOrNull()
+    }
 
     /** Aus dem 15-Minuten-Check: Regeln erneuern und das mobile Tageslimit prüfen. */
     suspend fun periodicCheck() {

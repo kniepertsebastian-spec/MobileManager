@@ -1,5 +1,6 @@
 package app.mobilemanager.ui.extras
 
+import androidx.compose.runtime.saveable.rememberSaveable
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
@@ -58,8 +59,8 @@ import kotlin.random.Random
 fun HardwareTestsScreen(onBack: () -> Unit, onOpenTouchTest: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var speaker by remember { mutableStateOf<String?>(null) }
-    var storage by remember { mutableStateOf<String?>(null) }
+    var speaker by rememberSaveable { mutableStateOf<String?>(null) }
+    var storage by rememberSaveable { mutableStateOf<String?>(null) }
 
     GuardSubScreen(title = "Hardware-Tests", onBack = onBack) { padding ->
         Column(

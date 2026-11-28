@@ -1,5 +1,7 @@
 package app.mobilemanager.launcher.ui
 
+import app.mobilemanager.launcher.R
+import androidx.compose.ui.res.stringResource
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.graphics.Color
@@ -51,9 +53,9 @@ class LauncherActivity : ComponentActivity() {
         try {
             startActivity(intent)
         } catch (_: ActivityNotFoundException) {
-            Toast.makeText(this, "Keine passende App gefunden", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.launcher_msg_no_app), Toast.LENGTH_SHORT).show()
         } catch (_: SecurityException) {
-            Toast.makeText(this, "Aktion nicht erlaubt", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.launcher_msg_action_denied), Toast.LENGTH_SHORT).show()
         }
     }
 }

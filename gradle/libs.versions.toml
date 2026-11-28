@@ -24,6 +24,7 @@ androidxTestExt = "1.3.0"
 androidxTestRunner = "1.7.0"
 exifinterface = "1.4.2"
 mockk = "1.14.5"
+leakcanary = "2.14"
 kotlinxSerialization = "1.8.1"
 
 [libraries]
@@ -75,6 +76,7 @@ androidx-compose-ui-test-manifest = { module = "androidx.compose.ui:ui-test-mani
 androidx-exifinterface = { module = "androidx.exifinterface:exifinterface", version.ref = "exifinterface" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
 mockk = { module = "io.mockk:mockk", version.ref = "mockk" }
+leakcanary = { module = "com.squareup.leakcanary:leakcanary-android", version.ref = "leakcanary" }
 kotlinx-serialization-core = { module = "org.jetbrains.kotlinx:kotlinx-serialization-core", version.ref = "kotlinxSerialization" }
 
 [plugins]

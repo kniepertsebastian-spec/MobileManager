@@ -1,5 +1,9 @@
 package app.mobilemanager.ui.locker
 
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.foundation.layout.Box
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.saveable.rememberSaveable
 import android.content.ClipData
 import android.content.ClipDescription
 import android.content.ClipboardManager
@@ -92,7 +96,9 @@ class LockerViewModel @Inject constructor(
     private val bluetooth: BluetoothRepository,
     private val permissions: PermissionChecker,
 ) : ViewModel() {
-    val settings: StateFlow<LockerSettings> = repository.settings.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), LockerSettings())
+    /** `null` = noch nicht geladen. Sonst stünde kurz die ungeschützte Standard-Ansicht (Sperre „aus“) auf dem Schirm. */
+    val loadedSettings: StateFlow<LockerSettings?> = repository.settings.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    private val settings: LockerSettings get() = loadedSettings.value ?: LockerSettings()
     private val _apps = MutableStateFlow<List<LaunchableApp>>(emptyList())
     val launchable: StateFlow<List<LaunchableApp>> = _apps.asStateFlow()
     private val _env = MutableStateFlow(LockerEnvironment())
@@ -125,7 +131,7 @@ class LockerViewModel @Inject constructor(
 
     /** Ausschalten mit Strict Mode: erst Wartezeit anfordern, dann innerhalb von 10 Minuten bestätigen. */
     fun setEnabled(enabled: Boolean) {
-        val s = settings.value
+        val s = settings
         if (enabled) {
             // Wer gerade einschaltet, soll nicht sofort aus den Einstellungen ausgesperrt werden.
             controller.unlock(LockerController.SETTINGS_KEY)
@@ -148,7 +154,7 @@ class LockerViewModel @Inject constructor(
         viewModelScope.launch {
             repository.setPin(pin)
             repository.update { it.copy(secondFactor = SecondFactor.PIN) }
-            if (settings.value.recoveryCodesLeft == 0) newRecoveryCodes()
+            if (settings.recoveryCodesLeft == 0) newRecoveryCodes()
             _message.value = "App-PIN gespeichert"
         }
     }
@@ -159,7 +165,7 @@ class LockerViewModel @Inject constructor(
         viewModelScope.launch {
             repository.setTotpSecret(secret)
             repository.update { it.copy(secondFactor = SecondFactor.TOTP) }
-            if (settings.value.recoveryCodesLeft == 0) newRecoveryCodes()
+            if (settings.recoveryCodesLeft == 0) newRecoveryCodes()
             _message.value = "Authenticator eingerichtet"
         }
         return true
@@ -169,7 +175,7 @@ class LockerViewModel @Inject constructor(
         viewModelScope.launch {
             repository.setNfcTag(tagId)
             repository.update { it.copy(secondFactor = SecondFactor.NFC) }
-            if (settings.value.recoveryCodesLeft == 0) newRecoveryCodes()
+            if (settings.recoveryCodesLeft == 0) newRecoveryCodes()
             _message.value = "NFC-Tag angelernt"
         }
     }
@@ -193,18 +199,31 @@ class LockerViewModel @Inject constructor(
 @Composable
 fun LockerScreen(onBack: () -> Unit, viewModel: LockerViewModel = hiltViewModel()) {
     val context = LocalContext.current
-    val s by viewModel.settings.collectAsStateWithLifecycle()
+    val loaded by viewModel.loadedSettings.collectAsStateWithLifecycle()
     val apps by viewModel.launchable.collectAsStateWithLifecycle()
     val env by viewModel.environment.collectAsStateWithLifecycle()
     val paired by viewModel.paired.collectAsStateWithLifecycle()
     val recovery by viewModel.recoveryCodes.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh() }
-    var showPicker by remember { mutableStateOf(false) }
-    var setup by remember { mutableStateOf<SecondFactor?>(null) }
+    var showPicker by rememberSaveable { mutableStateOf(false) }
+    var setup by rememberSaveable { mutableStateOf<SecondFactor?>(null) }
+    val s = loaded
+    // Geschützt, solange nicht entsperrt – auch nach Process Death mit wiederhergestellten Dialog-Zuständen.
+    val locked = s == null || (viewModel.needsAuth(s) && !env.unlocked)
+    LaunchedEffect(locked) {
+        if (locked) {
+            showPicker = false
+            setup = null
+        }
+    }
 
     GuardSubScreen(title = "App-Sperre (2FA)", onBack = onBack) { padding ->
-        if (viewModel.needsAuth(s) && !env.unlocked) {
+        if (s == null) {
+            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+            return@GuardSubScreen
+        }
+        if (locked) {
             Column(Modifier.fillMaxSize().padding(padding).padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text("Die Einstellungen der App-Sperre sind geschützt.", style = MaterialTheme.typography.titleMedium)
                 Button(onClick = { context.startActivity(LockActivity.intent(context, LockerController.SETTINGS_KEY)) }) { Text("Entsperren") }
@@ -364,6 +383,8 @@ fun LockerScreen(onBack: () -> Unit, viewModel: LockerViewModel = hiltViewModel(
             }
         }
     }
+
+    if (s == null || locked) return
 
     if (showPicker) {
         AppPickerDialog("Gesperrte Apps", apps, s.packages, onDismiss = { showPicker = false }) { chosen ->

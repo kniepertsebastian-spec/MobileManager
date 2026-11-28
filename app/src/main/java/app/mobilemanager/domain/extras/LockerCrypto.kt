@@ -145,7 +145,15 @@ object LockerPolicy {
     fun lockoutMillis(failures: Int): Long {
         if (failures < 3) return 0
         val factor = 1L shl (failures - 3).coerceAtMost(5)
-        return (30_000L * factor).coerceAtMost(15 * 60_000L)
+        return (30_000L * factor).coerceAtMost(MAX_LOCKOUT_MILLIS)
+    }
+
+    const val MAX_LOCKOUT_MILLIS = 15 * 60_000L
+
+    /** Gespeicherte Sperrzeit nach Neustart: nie länger als die Maximal-Sperre ab jetzt (Uhr verstellt). */
+    fun clampLockout(savedUntil: Long, now: Long): Long = when {
+        savedUntil <= now -> 0L
+        else -> minOf(savedUntil, now + MAX_LOCKOUT_MILLIS)
     }
 
     /** Strict Mode: Ausschalten erst nach Ablauf der Wartezeit, dann 10 Minuten lang möglich. */

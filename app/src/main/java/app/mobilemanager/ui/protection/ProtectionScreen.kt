@@ -1,5 +1,6 @@
 package app.mobilemanager.ui.protection
 
+import androidx.compose.runtime.saveable.rememberSaveable
 import android.content.Intent
 import android.net.Uri
 import android.os.Process
@@ -155,14 +156,16 @@ fun ProtectionScreen(onBack: () -> Unit, onOpenTamperLog: () -> Unit, viewModel:
     val realtime by viewModel.realtimeEnabled.collectAsStateWithLifecycle()
     val alwaysOn by TrackerVpnState.alwaysOn.collectAsStateWithLifecycle()
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh() }
-    var passwordFor by remember { mutableStateOf<Pair<Boolean, Uri>?>(null) }
-    var restartPending by remember { mutableStateOf(false) }
+    // Überlebt Process Death (z. B. während der Dateiauswahl) – das Passwort selbst wird bewusst nie gespeichert.
+    var passwordUri by rememberSaveable { mutableStateOf<Uri?>(null) }
+    var passwordIsExport by rememberSaveable { mutableStateOf(true) }
+    var restartPending by rememberSaveable { mutableStateOf(false) }
 
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
-        uri?.let { passwordFor = true to it }
+        uri?.let { passwordIsExport = true; passwordUri = it }
     }
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let { passwordFor = false to it }
+        uri?.let { passwordIsExport = false; passwordUri = it }
     }
 
     GuardSubScreen(title = "Selbstschutz & Datenschutz", onBack = onBack) { padding ->
@@ -290,13 +293,14 @@ fun ProtectionScreen(onBack: () -> Unit, onOpenTamperLog: () -> Unit, viewModel:
         }
     }
 
-    passwordFor?.let { (isExport, uri) ->
+    passwordUri?.let { uri ->
+        val isExport = passwordIsExport
         PasswordDialog(
             title = if (isExport) "Passwort für die Sicherung" else "Passwort der Sicherung",
             confirmRepeat = isExport,
-            onDismiss = { passwordFor = null },
+            onDismiss = { passwordUri = null },
         ) { password ->
-            passwordFor = null
+            passwordUri = null
             if (isExport) viewModel.export(uri, password) else viewModel.import(uri, password) { restartPending = true }
         }
     }

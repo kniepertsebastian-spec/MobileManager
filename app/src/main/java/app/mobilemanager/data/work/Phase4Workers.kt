@@ -84,6 +84,16 @@ class TempPermissionRevokeWorker @AssistedInject constructor(
                     MainActivity.DESTINATION_POWER_TOOLS,
                 )
             }
+            // Nicht endlos: nach ~1 Tag (lineares Backoff) aufgeben und den Nutzer um manuelles Entziehen bitten.
+            if (runAttemptCount >= MAX_ATTEMPTS) {
+                notifications.showInfo(
+                    AppNotifications.ID_TEMP_PERMISSION,
+                    "Berechtigung bitte selbst entziehen",
+                    "${powerTools.label(pkg)} hat die befristete Berechtigung noch. Bitte in den App-Infos entziehen.",
+                    MainActivity.DESTINATION_POWER_TOOLS,
+                )
+                return Result.failure()
+            }
             return Result.retry()
         }
         return Result.success()
@@ -92,5 +102,7 @@ class TempPermissionRevokeWorker @AssistedInject constructor(
     companion object {
         const val KEY_PACKAGE = "package"
         const val KEY_PERMISSIONS = "permissions"
+        /** Lineares Backoff à 5 min: 24 Versuche ≈ 25 Stunden. */
+        const val MAX_ATTEMPTS = 24
     }
 }
