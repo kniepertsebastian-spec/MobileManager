@@ -21,7 +21,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
@@ -68,24 +67,42 @@ class AlertSettingsViewModel @Inject constructor(
         guardSettings.settings.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), GuardSettings())
 
     init {
-        viewModelScope.launch { _state.value = AlertSettingsUiState(loaded = true, draft = store.current()) }
+        viewModelScope.launch {
+            // Keystore-Fehler (z. B. nach Geräte-Wiederherstellung) dürfen den Bildschirm nicht abstürzen lassen.
+            _state.value = runCatching { store.current() }.fold(
+                onSuccess = { AlertSettingsUiState(loaded = true, draft = it) },
+                onFailure = { e ->
+                    AlertSettingsUiState(loaded = true, message = "Gespeicherte Zugangsdaten nicht lesbar: ${e.describe()}", messageIsError = true)
+                },
+            )
+        }
     }
 
     fun edit(transform: (AlertConfig) -> AlertConfig) =
         _state.update { it.copy(draft = transform(it.draft), dirty = true, message = null) }
 
     fun save() {
+        val draft = _state.value.draft
+        if (!draft.isSavable) return
         viewModelScope.launch {
-            store.save(_state.value.draft)
-            _state.update { it.copy(dirty = false, message = "Verschlüsselt gespeichert", messageIsError = false) }
+            runCatching { store.save(draft) }.fold(
+                onSuccess = { _state.update { it.copy(dirty = false, message = "Verschlüsselt gespeichert", messageIsError = false) } },
+                onFailure = { e -> _state.update { it.copy(message = "Speichern fehlgeschlagen: ${e.describe()}", messageIsError = true) } },
+            )
         }
     }
 
     /** Speichert und sendet sofort einen Test-Alarm. */
     fun sendTest() {
         if (_state.value.testing) return
+        val draft = _state.value.draft
+        if (!draft.isSavable) return
         viewModelScope.launch {
-            store.save(_state.value.draft)
+            val saved = runCatching { store.save(draft) }
+            if (saved.isFailure) {
+                _state.update { it.copy(message = "Speichern fehlgeschlagen: ${saved.exceptionOrNull()!!.describe()}", messageIsError = true) }
+                return@launch
+            }
             _state.update { it.copy(dirty = false, testing = true, message = null) }
             val result = securityEvents.sendTest()
             _state.update {
@@ -93,7 +110,7 @@ class AlertSettingsViewModel @Inject constructor(
                     testing = false,
                     message = result.fold(
                         onSuccess = { "Test-Alarm gesendet – bitte Posteingang bzw. App prüfen." },
-                        onFailure = { e -> "Fehler: ${e.message ?: e.javaClass.simpleName}" },
+                        onFailure = { e -> "Fehler: ${e.describe()}" },
                     ),
                     messageIsError = result.isFailure,
                 )
@@ -104,6 +121,8 @@ class AlertSettingsViewModel @Inject constructor(
     fun setCooldown(minutes: Int) {
         viewModelScope.launch { guardSettings.update { it.copy(alertCooldownMinutes = minutes) } }
     }
+
+    private fun Throwable.describe() = message ?: javaClass.simpleName
 }
 
 @Composable
@@ -151,16 +170,20 @@ fun AlertSettingsScreen(onBack: () -> Unit, viewModel: AlertSettingsViewModel = 
                         Field("Server", c.ntfyServer, KeyboardType.Uri) { v -> viewModel.edit { it.copy(ntfyServer = v) } }
                         Field("Topic", c.ntfyTopic) { v -> viewModel.edit { it.copy(ntfyTopic = v) } }
                         SecretField("Access-Token (optional)", c.ntfyToken) { v -> viewModel.edit { it.copy(ntfyToken = v) } }
-                        if (!c.ntfyServer.startsWith("https://")) {
-                            Text("Nur HTTPS-Server werden unterstützt.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                        if (!c.ntfyServerValid) {
+                            Text(
+                                "Nur gültige HTTPS-Adressen (https://…) werden unterstützt – Speichern ist bis dahin gesperrt.",
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
                         }
                     }
                 }
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Button(onClick = viewModel::save, enabled = state.dirty) { Text("Speichern") }
-                OutlinedButton(onClick = viewModel::sendTest, enabled = c.isConfigured && !state.testing) {
+                Button(onClick = viewModel::save, enabled = state.dirty && c.isSavable) { Text("Speichern") }
+                OutlinedButton(onClick = viewModel::sendTest, enabled = c.isConfigured && c.isSavable && !state.testing) {
                     Text("Test-Alarm senden")
                 }
                 if (state.testing) CircularProgressIndicator(Modifier.size(24.dp))
@@ -224,15 +247,14 @@ private fun Field(label: String, value: String, keyboard: KeyboardType = Keyboar
     )
 }
 
+/** Verdeckte Eingabe ohne Kopieren (OutlinedSecureTextField statt der abgekündigten VisualTransformation). */
 @Composable
 private fun SecretField(label: String, value: String, onChange: (String) -> Unit) {
-    OutlinedTextField(
-        value = value,
+    app.mobilemanager.ui.components.SecretField(
+        label = label,
         onValueChange = onChange,
-        label = { Text(label) },
-        singleLine = true,
-        visualTransformation = PasswordVisualTransformation(),
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
-        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        initialValue = value,
+        maxLength = 512,
+        modifier = Modifier.padding(vertical = 2.dp),
     )
 }

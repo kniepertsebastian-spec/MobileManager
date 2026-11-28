@@ -37,6 +37,11 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import app.mobilemanager.R
 import app.mobilemanager.ui.components.formatBytes
 
 @Composable
@@ -64,30 +69,32 @@ fun DashboardScreen(
         if (state.missingPermissions > 0) {
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
                 Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Warning, contentDescription = null)
+                    Icon(Icons.Default.Warning, contentDescription = stringResource(R.string.cd_warning))
                     Spacer(Modifier.width(12.dp))
-                    Text("${state.missingPermissions} Berechtigungen fehlen", Modifier.weight(1f))
-                    TextButton(onClick = onOpenPermissions) { Text("Prüfen") }
+                    Text(
+                        pluralStringResource(R.plurals.dashboard_missing_permissions, state.missingPermissions, state.missingPermissions),
+                        Modifier.weight(1f),
+                    )
+                    TextButton(onClick = onOpenPermissions) { Text(stringResource(R.string.dashboard_check)) }
                 }
             }
         }
 
         // 1. App-Stopper
-        StatusCard(icon = Icons.Default.StopCircle, title = "App-Stopper") {
+        StatusCard(icon = Icons.Default.StopCircle, title = stringResource(R.string.nav_app_stopper)) {
             val count = state.inactiveApps?.size
             Text(
                 when (count) {
-                    null -> "Wird geprüft …"
-                    0 -> "Keine inaktiven Apps gefunden"
-                    1 -> "1 inaktive App gefunden"
-                    else -> "$count inaktive Apps gefunden"
+                    null -> stringResource(R.string.dashboard_checking)
+                    0 -> stringResource(R.string.dashboard_no_inactive)
+                    else -> pluralStringResource(R.plurals.dashboard_inactive_apps, count, count)
                 },
                 style = MaterialTheme.typography.headlineSmall,
             )
             val progress = state.stopProgress
             when {
                 progress != null && !progress.finished -> {
-                    Text("Stoppe ${progress.currentLabel} (${progress.current + 1}/${progress.total})")
+                    Text(stringResource(R.string.dashboard_stopping, progress.currentLabel, progress.current + 1, progress.total))
                     LinearProgressIndicator(
                         progress = { if (progress.total == 0) 0f else progress.current.toFloat() / progress.total },
                         modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
@@ -95,13 +102,14 @@ fun DashboardScreen(
                 }
                 progress != null -> Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        "${progress.succeeded} Apps gestoppt" + if (progress.failed > 0) ", ${progress.failed} Fehler" else "",
+                        pluralStringResource(R.plurals.dashboard_stopped, progress.succeeded, progress.succeeded) +
+                            if (progress.failed > 0) pluralStringResource(R.plurals.dashboard_stop_errors, progress.failed, progress.failed) else "",
                         Modifier.weight(1f),
                     )
-                    TextButton(onClick = viewModel::dismissStopResult) { Text("OK") }
+                    TextButton(onClick = viewModel::dismissStopResult) { Text(stringResource(R.string.action_ok)) }
                 }
                 state.stopMethod == null -> Text(
-                    "Shizuku ist nicht aktiv – Apps können derzeit nicht beendet werden.",
+                    stringResource(R.string.dashboard_shizuku_inactive),
                     color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodySmall,
                 )
@@ -110,62 +118,68 @@ fun DashboardScreen(
                 Button(
                     onClick = viewModel::stopAll,
                     enabled = (count ?: 0) > 0 && state.stopMethod != null && progress?.finished != false,
-                ) { Text("Alle stoppen") }
-                OutlinedButton(onClick = onOpenAppStopper) { Text("Details") }
+                ) { Text(stringResource(R.string.dashboard_stop_all)) }
+                OutlinedButton(onClick = onOpenAppStopper) { Text(stringResource(R.string.action_details)) }
             }
         }
 
         // 2. Speicher
-        StatusCard(icon = Icons.Default.SdStorage, title = "Speicher") {
+        StatusCard(icon = Icons.Default.SdStorage, title = stringResource(R.string.dashboard_storage)) {
             val storage = state.storage
             if (storage != null) {
-                Text("${formatBytes(context, storage.freeBytes)} frei", style = MaterialTheme.typography.headlineSmall)
+                Text(stringResource(R.string.dashboard_free, formatBytes(context, storage.freeBytes)), style = MaterialTheme.typography.headlineSmall)
                 LinearProgressIndicator(
                     progress = { 1f - storage.freeBytes.toFloat() / storage.totalBytes.coerceAtLeast(1) },
                     modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                 )
-                Text("von ${formatBytes(context, storage.totalBytes)}", style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.dashboard_of_total, formatBytes(context, storage.totalBytes)), style = MaterialTheme.typography.bodySmall)
             }
             Text(
-                lastCleanup?.let { "Zuletzt ${formatBytes(context, it.freedBytes)} bereinigt" } ?: "Noch nichts bereinigt",
+                lastCleanup?.let { stringResource(R.string.dashboard_last_cleanup, formatBytes(context, it.freedBytes)) }
+                    ?: stringResource(R.string.dashboard_no_cleanup),
                 modifier = Modifier.padding(top = 4.dp),
             )
-            Button(onClick = onStartScan, modifier = Modifier.padding(top = 8.dp)) { Text("Scan starten") }
+            Button(onClick = onStartScan, modifier = Modifier.padding(top = 8.dp)) { Text(stringResource(R.string.dashboard_start_scan)) }
         }
 
         // 3. Bluetooth
-        StatusCard(icon = Icons.Default.Bluetooth, title = "Bluetooth-Automatik") {
+        StatusCard(icon = Icons.Default.Bluetooth, title = stringResource(R.string.dashboard_bluetooth)) {
             Text(
-                when (bt.activeRules) {
-                    0 -> "Keine aktiven Regeln"
-                    1 -> "1 aktive Regel"
-                    else -> "${bt.activeRules} aktive Regeln"
+                if (bt.activeRules == 0) {
+                    stringResource(R.string.dashboard_no_rules)
+                } else {
+                    pluralStringResource(R.plurals.dashboard_active_rules, bt.activeRules, bt.activeRules)
                 },
                 style = MaterialTheme.typography.headlineSmall,
             )
             Text(
-                if (bt.connectedNames.isEmpty()) "Kein Gerät verbunden" else "Verbunden: ${bt.connectedNames.joinToString()}",
+                if (bt.connectedNames.isEmpty()) {
+                    stringResource(R.string.dashboard_no_device)
+                } else {
+                    stringResource(R.string.dashboard_connected, bt.connectedNames.joinToString())
+                },
             )
-            OutlinedButton(onClick = onOpenAutomation, modifier = Modifier.padding(top = 8.dp)) { Text("Regeln verwalten") }
+            OutlinedButton(onClick = onOpenAutomation, modifier = Modifier.padding(top = 8.dp)) { Text(stringResource(R.string.dashboard_manage_rules)) }
         }
 
         // 4. Wächter (Phase 2)
-        StatusCard(icon = Icons.Default.Shield, title = "Wächter") {
+        StatusCard(icon = Icons.Default.Shield, title = stringResource(R.string.nav_guard)) {
             Text(
-                battery?.let { "Akku ${it.levelPercent} % · ${"%.1f".format(it.temperatureCelsius)} °C" } ?: "Akku wird gelesen …",
+                battery?.let { stringResource(R.string.dashboard_battery, it.levelPercent, it.temperatureCelsius) }
+                    ?: stringResource(R.string.dashboard_battery_reading),
                 style = MaterialTheme.typography.headlineSmall,
             )
             Text(
-                nightReport?.let { "Nacht-Standby: −${it.dropPercent} % in ${"%.1f".format(it.hours)} h" }
-                    ?: "Noch kein Nacht-Standby-Bericht",
+                nightReport?.let { stringResource(R.string.dashboard_night_report, it.dropPercent, it.hours) }
+                    ?: stringResource(R.string.dashboard_no_night_report),
             )
             if (unseenEvents > 0) {
                 Text(
-                    if (unseenEvents == 1) "1 neues Sicherheitsereignis" else "$unseenEvents neue Sicherheitsereignisse",
+                    pluralStringResource(R.plurals.dashboard_security_events, unseenEvents, unseenEvents),
                     color = MaterialTheme.colorScheme.error,
                 )
             }
-            OutlinedButton(onClick = onOpenGuard, modifier = Modifier.padding(top = 8.dp)) { Text("Wächter öffnen") }
+            OutlinedButton(onClick = onOpenGuard, modifier = Modifier.padding(top = 8.dp)) { Text(stringResource(R.string.dashboard_open_guard)) }
         }
     }
 }
@@ -180,7 +194,7 @@ private fun StatusCard(icon: ImageVector, title: String, content: @Composable ()
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
                 Spacer(Modifier.width(8.dp))
-                Text(title, style = MaterialTheme.typography.titleMedium)
+                Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
             }
             Spacer(Modifier.size(8.dp))
             content()

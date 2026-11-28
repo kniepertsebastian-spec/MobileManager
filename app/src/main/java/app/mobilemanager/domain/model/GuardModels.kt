@@ -81,8 +81,21 @@ data class AlertConfig(
                 smtpUser.isNotBlank() && smtpPassword.isNotEmpty() && mailTo.isNotBlank()
             AlertChannelType.RESEND -> resendApiKey.isNotBlank() && mailFrom.isNotBlank() && mailTo.isNotBlank()
             AlertChannelType.TELEGRAM -> telegramToken.isNotBlank() && telegramChatId.isNotBlank()
-            AlertChannelType.NTFY -> ntfyServer.startsWith("https://") && ntfyTopic.isNotBlank()
+            AlertChannelType.NTFY -> ntfyServerValid && ntfyTopic.isNotBlank()
         }
+
+    /** ntfy nur über HTTPS mit echtem Host – kein Klartext, keine Zugangsdaten in der URL. */
+    val ntfyServerValid: Boolean get() = AlertUrls.isHttpsUrl(ntfyServer)
+
+    /** Darf gespeichert werden? (Unvollständig ist erlaubt, unsicher nicht.) */
+    val isSavable: Boolean get() = channel != AlertChannelType.NTFY || ntfyServer.isBlank() || ntfyServerValid
+}
+
+object AlertUrls {
+    fun isHttpsUrl(value: String): Boolean = runCatching {
+        val uri = java.net.URI(value.trim())
+        uri.scheme.equals("https", ignoreCase = true) && !uri.host.isNullOrBlank() && uri.rawUserInfo == null
+    }.getOrDefault(false)
 }
 
 data class AlertMessage(val subject: String, val body: String)

@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -31,11 +32,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleRegistry
 import androidx.lifecycle.setViewTreeLifecycleOwner
@@ -44,30 +43,50 @@ import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import app.mobilemanager.ui.theme.MobileManagerTheme
+import app.mobilemanager.data.apps.AppVisuals
+import app.mobilemanager.di.AppCoroutines
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Meilenstein 3.4.1: ruhiges Vollbild-Overlay (SYSTEM_ALERT_WINDOW) mit Countdown, bevor eine
- * markierte App nutzbar wird. Läuft komplett auf dem Main-Thread.
+ * markierte App nutzbar wird. Wird vom Main-Thread aus gesteuert; App-Name und Icon werden vorher
+ * auf [Dispatchers.IO] geladen (gecacht), erst danach kommt das Fenster.
  */
 class FocusOverlay(private val context: Context) {
 
     private val windowManager = context.getSystemService(WindowManager::class.java)
+    private val mainScope = AppCoroutines.scope("FocusOverlay", Dispatchers.Main.immediate)
     private var root: View? = null
     private var owner: OverlayLifecycleOwner? = null
+    private var loadJob: Job? = null
 
     var packageName: String? = null
         private set
 
-    val isShowing: Boolean get() = root != null
+    /** Auch während des Ladens „sichtbar“ – sonst würde ein zweiter App-Wechsel das Overlay doppelt anfordern. */
+    val isShowing: Boolean get() = root != null || loadJob?.isActive == true
 
     fun show(packageName: String, seconds: Int, onCancel: () -> Unit, onOpen: () -> Unit) {
         dismiss()
-        val pm = context.packageManager
-        val info = runCatching { pm.getApplicationInfo(packageName, android.content.pm.PackageManager.ApplicationInfoFlags.of(0)) }.getOrNull()
-        val label = info?.loadLabel(pm)?.toString() ?: packageName
-        val icon = info?.let { runCatching { it.loadIcon(pm).toBitmap(192, 192).asImageBitmap() }.getOrNull() }
+        this.packageName = packageName
+        loadJob = mainScope.launch {
+            val label = AppVisuals.label(context, packageName)
+            val icon = AppVisuals.icon(context, packageName, ICON_PX)
+            attach(packageName, label, icon, seconds, onCancel, onOpen)
+        }
+    }
 
+    private fun attach(
+        packageName: String,
+        label: String,
+        icon: androidx.compose.ui.graphics.ImageBitmap?,
+        seconds: Int,
+        onCancel: () -> Unit,
+        onOpen: () -> Unit,
+    ) {
         val lifecycleOwner = OverlayLifecycleOwner().also { it.create() }
         val composeView = ComposeView(context).apply {
             setViewTreeLifecycleOwner(lifecycleOwner)
@@ -98,6 +117,7 @@ class FocusOverlay(private val context: Context) {
         val added = runCatching { windowManager.addView(container, params) }.isSuccess
         if (!added) {
             lifecycleOwner.destroy()
+            this.packageName = null
             return
         }
         lifecycleOwner.resume()
@@ -107,11 +127,17 @@ class FocusOverlay(private val context: Context) {
     }
 
     fun dismiss() {
+        loadJob?.cancel()
+        loadJob = null
         root?.let { runCatching { windowManager.removeView(it) } }
         owner?.destroy()
         root = null
         owner = null
         packageName = null
+    }
+
+    private companion object {
+        const val ICON_PX = 192
     }
 }
 
@@ -130,7 +156,11 @@ private fun FocusBrakeContent(
             remaining--
         }
     }
-    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.88f)), contentAlignment = Alignment.Center) {
+    // FLAG_LAYOUT_IN_SCREEN: Fenster liegt unter den Systemleisten – Inhalt davon freihalten.
+    Box(
+        Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.88f)).safeDrawingPadding(),
+        contentAlignment = Alignment.Center,
+    ) {
         Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.padding(32.dp)) {
             Column(
                 Modifier.padding(28.dp),

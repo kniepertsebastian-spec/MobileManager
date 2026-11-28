@@ -24,7 +24,10 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.annotation.StringRes
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import app.mobilemanager.R
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavHostController
@@ -99,12 +102,12 @@ object Routes {
     fun cleaner(scanToken: Long = 0L) = "cleaner?scanToken=$scanToken"
 }
 
-private enum class TopLevel(val route: String, val pattern: String, val label: String, val icon: ImageVector) {
-    DASHBOARD(Routes.DASHBOARD, Routes.DASHBOARD, "Dashboard", Icons.Default.Dashboard),
-    APP_STOPPER(Routes.APP_STOPPER, Routes.APP_STOPPER, "App-Stopper", Icons.Default.StopCircle),
-    CLEANER(Routes.cleaner(), Routes.CLEANER_PATTERN, "Cleaner", Icons.Default.CleaningServices),
-    AUTOMATION(Routes.AUTOMATION, Routes.AUTOMATION, "Automatik", Icons.Default.AutoMode),
-    GUARD(Routes.GUARD, Routes.GUARD, "Wächter", Icons.Default.Shield),
+private enum class TopLevel(val route: String, val pattern: String, @StringRes val label: Int, val icon: ImageVector) {
+    DASHBOARD(Routes.DASHBOARD, Routes.DASHBOARD, R.string.nav_dashboard, Icons.Default.Dashboard),
+    APP_STOPPER(Routes.APP_STOPPER, Routes.APP_STOPPER, R.string.nav_app_stopper, Icons.Default.StopCircle),
+    CLEANER(Routes.cleaner(), Routes.CLEANER_PATTERN, R.string.nav_cleaner, Icons.Default.CleaningServices),
+    AUTOMATION(Routes.AUTOMATION, Routes.AUTOMATION, R.string.nav_automation, Icons.Default.AutoMode),
+    GUARD(Routes.GUARD, Routes.GUARD, R.string.nav_guard, Icons.Default.Shield),
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -132,16 +135,16 @@ fun MobileManagerNavHost(
         topBar = {
             if (currentTopLevel != null) {
                 TopAppBar(
-                    title = { Text(currentTopLevel.label) },
+                    title = { Text(stringResource(currentTopLevel.label)) },
                     actions = {
                         IconButton(onClick = { navController.navigate(Routes.EXTRAS) }) {
-                            Icon(Icons.Default.Extension, contentDescription = "Launcher & Extras")
+                            Icon(Icons.Default.Extension, contentDescription = stringResource(R.string.nav_extras))
                         }
                         IconButton(onClick = { navController.navigate(Routes.PERMISSIONS) }) {
-                            Icon(Icons.Default.Security, contentDescription = "Berechtigungen")
+                            Icon(Icons.Default.Security, contentDescription = stringResource(R.string.nav_permissions))
                         }
                         IconButton(onClick = { navController.navigate(Routes.SETTINGS) }) {
-                            Icon(Icons.Default.Settings, contentDescription = "Einstellungen")
+                            Icon(Icons.Default.Settings, contentDescription = stringResource(R.string.nav_settings))
                         }
                     },
                 )
@@ -155,7 +158,7 @@ fun MobileManagerNavHost(
                             selected = tab == currentTopLevel,
                             onClick = { navigateTopLevel(navController, tab.route) },
                             icon = { Icon(tab.icon, contentDescription = null) },
-                            label = { Text(tab.label) },
+                            label = { Text(stringResource(tab.label)) },
                         )
                     }
                 }

@@ -14,6 +14,7 @@ import jakarta.mail.internet.MimeMessage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.FormBody
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -150,8 +151,11 @@ class NtfyChannel(private val config: AlertConfig, private val http: OkHttpClien
             .put("message", message.body)
             .put("priority", 5)
             .put("tags", JSONArray(listOf("rotating_light")))
+        // Erst prüfen, dann senden: niemals Token oder Alarm-Inhalt über Klartext-HTTP.
+        val url = config.ntfyServer.trim().trimEnd('/').toHttpUrlOrNull()?.takeIf { it.isHttps && it.username.isEmpty() }
+            ?: throw IOException("Ungültige ntfy-Server-URL – nur https:// wird unterstützt")
         val request = Request.Builder()
-            .url(config.ntfyServer.trim().trimEnd('/'))
+            .url(url)
             .post(json.toString().toRequestBody(JSON))
         if (config.ntfyToken.isNotBlank()) request.header("Authorization", "Bearer ${config.ntfyToken.trim()}")
         http.execute(request.build())

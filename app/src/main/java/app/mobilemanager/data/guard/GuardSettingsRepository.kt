@@ -44,6 +44,9 @@ data class GuardSettings(
     val nightEndMinutes: Int = 7 * 60,
     // 2.5 Benachrichtigungen
     val notificationArchiveEnabled: Boolean = true,
+    /** Banking-, 2FA- und Passwort-Apps nicht archivieren (Standard: an). */
+    val archiveExcludeSensitive: Boolean = true,
+    val archiveExcludedApps: Set<String> = emptySet(),
     val digestEnabled: Boolean = false,
     val digestApps: Set<String> = emptySet(),
     val digestKeywords: Set<String> = emptySet(),
@@ -75,6 +78,8 @@ class GuardSettingsRepository @Inject constructor(
         val NIGHT_START = intPreferencesKey("night_start_minutes")
         val NIGHT_END = intPreferencesKey("night_end_minutes")
         val ARCHIVE = booleanPreferencesKey("notification_archive")
+        val ARCHIVE_EXCLUDE_SENSITIVE = booleanPreferencesKey("archive_exclude_sensitive")
+        val ARCHIVE_EXCLUDED_APPS = stringSetPreferencesKey("archive_excluded_apps")
         val DIGEST = booleanPreferencesKey("digest_enabled")
         val DIGEST_APPS = stringSetPreferencesKey("digest_apps")
         val DIGEST_KEYWORDS = stringSetPreferencesKey("digest_keywords")
@@ -121,6 +126,8 @@ class GuardSettingsRepository @Inject constructor(
             nightStartMinutes = p[Keys.NIGHT_START] ?: defaults.nightStartMinutes,
             nightEndMinutes = p[Keys.NIGHT_END] ?: defaults.nightEndMinutes,
             notificationArchiveEnabled = p[Keys.ARCHIVE] ?: defaults.notificationArchiveEnabled,
+            archiveExcludeSensitive = p[Keys.ARCHIVE_EXCLUDE_SENSITIVE] ?: defaults.archiveExcludeSensitive,
+            archiveExcludedApps = p[Keys.ARCHIVE_EXCLUDED_APPS] ?: defaults.archiveExcludedApps,
             digestEnabled = p[Keys.DIGEST] ?: defaults.digestEnabled,
             digestApps = p[Keys.DIGEST_APPS] ?: defaults.digestApps,
             digestKeywords = p[Keys.DIGEST_KEYWORDS] ?: defaults.digestKeywords,
@@ -149,6 +156,8 @@ class GuardSettingsRepository @Inject constructor(
             p[Keys.NIGHT_START] = s.nightStartMinutes
             p[Keys.NIGHT_END] = s.nightEndMinutes
             p[Keys.ARCHIVE] = s.notificationArchiveEnabled
+            p[Keys.ARCHIVE_EXCLUDE_SENSITIVE] = s.archiveExcludeSensitive
+            p[Keys.ARCHIVE_EXCLUDED_APPS] = s.archiveExcludedApps
             p[Keys.DIGEST] = s.digestEnabled
             p[Keys.DIGEST_APPS] = s.digestApps
             p[Keys.DIGEST_KEYWORDS] = s.digestKeywords

@@ -91,7 +91,7 @@ data class BackupApp(
     val splitCount: Int,
 )
 
-/** Meilenstein 3.4.4: kopiert base.apk (und Split-APKs) nach Documents/PixelManagerBackups. */
+/** Meilenstein 3.4.4: kopiert base.apk (und Split-APKs) nach Documents/MobileManagerBackups. */
 @Singleton
 class ApkBackupRepository @Inject constructor(@ApplicationContext private val context: Context) {
 
@@ -117,7 +117,7 @@ class ApkBackupRepository @Inject constructor(@ApplicationContext private val co
     private fun apkFiles(app: ApplicationInfo): List<File> =
         (listOf(app.sourceDir) + app.splitSourceDirs.orEmpty()).filterNotNull().map(::File).filter { it.canRead() }
 
-    /** @return Ordner relativ zum internen Speicher, z. B. „Documents/PixelManagerBackups/Spotify_9.0.12“. */
+    /** @return Ordner relativ zum internen Speicher, z. B. „Documents/MobileManagerBackups/Spotify_9.0.12“. */
     suspend fun backup(packageName: String): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
             val info = pm.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(0))
@@ -151,7 +151,7 @@ class ApkBackupRepository @Inject constructor(@ApplicationContext private val co
     private fun sanitize(name: String) = name.replace(Regex("[^A-Za-z0-9._-]+"), "_").trim('_').take(80)
 
     companion object {
-        const val BACKUP_DIR = "PixelManagerBackups"
+        const val BACKUP_DIR = "MobileManagerBackups"
         private const val APK_MIME = "application/vnd.android.package-archive"
     }
 }

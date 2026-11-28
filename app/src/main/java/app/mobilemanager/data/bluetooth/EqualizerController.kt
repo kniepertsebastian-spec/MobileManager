@@ -1,7 +1,7 @@
 package app.mobilemanager.data.bluetooth
 
 import android.media.audiofx.Equalizer
-import android.util.Log
+import app.mobilemanager.util.logW
 import app.mobilemanager.domain.model.EqProfile
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -35,7 +35,7 @@ class EqualizerController @Inject constructor() {
         eq.enabled = profile != EqProfile.FLAT
         true
     } catch (e: Exception) {
-        Log.w(TAG, "Equalizer nicht verfügbar", e)
+        logW(TAG, "Equalizer nicht verfügbar", e)
         release()
         false
     }

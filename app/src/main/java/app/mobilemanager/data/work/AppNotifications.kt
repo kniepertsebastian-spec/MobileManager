@@ -282,6 +282,8 @@ class AppNotifications @Inject constructor(
         const val ID_CAFFEINE = 1019
         const val ID_BLOCKLIST = 1020
         const val ID_TEMP_PERMISSION = 1021
+        const val ID_BOOT_RESTORE = 1022
+        const val ID_BOOT_RESTORE_VPN = 1023
         private const val ID_SERVICE_TAP = 1099
         private const val MAX_DIGEST_LINES = 7
     }

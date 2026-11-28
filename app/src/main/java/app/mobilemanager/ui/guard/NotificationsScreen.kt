@@ -48,6 +48,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -61,6 +62,8 @@ import app.mobilemanager.domain.guard.Schedule
 import app.mobilemanager.domain.model.ArchivedNotification
 import app.mobilemanager.domain.model.LaunchableApp
 import app.mobilemanager.ui.components.AppIcon
+import app.mobilemanager.ui.components.AppPickerDialog
+import app.mobilemanager.ui.components.AppSelectionRow
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -81,14 +84,14 @@ class NotificationsViewModel @Inject constructor(
     private val repository: NotificationRepository,
     private val guardSettings: GuardSettingsRepository,
     private val installedApps: InstalledAppsRepository,
+    private val savedState: SavedStateHandle,
 ) : ViewModel() {
 
-    private val _query = MutableStateFlow("")
-    val query: StateFlow<String> = _query.asStateFlow()
-    private val _packageFilter = MutableStateFlow<String?>(null)
-    val packageFilter: StateFlow<String?> = _packageFilter.asStateFlow()
+    // Suche und Filter überstehen Process Death (nur Suchbegriff/Paketname – keine Inhalte im Bundle).
+    val query: StateFlow<String> = savedState.getStateFlow(KEY_QUERY, "")
+    val packageFilter: StateFlow<String?> = savedState.getStateFlow(KEY_FILTER, null)
 
-    val results: StateFlow<List<ArchivedNotification>> = combine(_query, _packageFilter) { q, p -> q to p }
+    val results: StateFlow<List<ArchivedNotification>> = combine(query, packageFilter) { q, p -> q to p }
         .flatMapLatest { (q, p) -> repository.search(q, p) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val apps: StateFlow<List<NotificationAppCount>> =
@@ -112,12 +115,14 @@ class NotificationsViewModel @Inject constructor(
     }
 
     fun setQuery(value: String) {
-        _query.value = value
+        savedState[KEY_QUERY] = value
     }
 
     fun setPackageFilter(pkg: String?) {
-        _packageFilter.value = pkg
+        savedState[KEY_FILTER] = pkg
     }
+
+    fun setArchiveExcludedApps(packages: Set<String>) = update { it.copy(archiveExcludedApps = packages) }
 
     fun clearArchive() {
         viewModelScope.launch { repository.clear() }
@@ -139,6 +144,11 @@ class NotificationsViewModel @Inject constructor(
 
     fun toggleDigestTime(minutes: Int) = update {
         it.copy(digestTimes = if (minutes in it.digestTimes) it.digestTimes - minutes else it.digestTimes + minutes)
+    }
+
+    private companion object {
+        const val KEY_QUERY = "archive_query"
+        const val KEY_FILTER = "archive_package_filter"
     }
 }
 
@@ -208,6 +218,9 @@ private fun ArchiveTab(viewModel: NotificationsViewModel) {
     val results by viewModel.results.collectAsStateWithLifecycle()
     val apps by viewModel.apps.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val launchable by viewModel.launchableApps.collectAsStateWithLifecycle()
+    var confirmEnable by remember { mutableStateOf(false) }
+    var pickExcluded by remember { mutableStateOf(false) }
 
     LazyColumn(
         contentPadding = PaddingValues(16.dp),
@@ -219,8 +232,24 @@ private fun ArchiveTab(viewModel: NotificationsViewModel) {
                 title = "Archiv aktiv",
                 subtitle = "Speichert Titel und Text aller Benachrichtigungen 7 Tage lang – nur lokal auf diesem Gerät.",
                 checked = settings.notificationArchiveEnabled,
-                onCheckedChange = { v -> viewModel.update { it.copy(notificationArchiveEnabled = v) } },
+                onCheckedChange = { v ->
+                    // Beim Einschalten erst den Datenschutzhinweis bestätigen lassen.
+                    if (v) confirmEnable = true else viewModel.update { it.copy(notificationArchiveEnabled = false) }
+                },
             )
+            if (settings.notificationArchiveEnabled) {
+                SwitchRow(
+                    title = "Sensible Apps ausschließen",
+                    subtitle = "Banking, Bezahl-Apps, Authenticator/2FA und Passwortmanager werden nicht archiviert.",
+                    checked = settings.archiveExcludeSensitive,
+                    onCheckedChange = { v -> viewModel.update { it.copy(archiveExcludeSensitive = v) } },
+                )
+                AppSelectionRow(
+                    title = "Weitere Apps ausschließen",
+                    count = settings.archiveExcludedApps.size,
+                    onClick = { pickExcluded = true },
+                )
+            }
             OutlinedTextField(
                 value = query,
                 onValueChange = viewModel::setQuery,
@@ -253,6 +282,39 @@ private fun ArchiveTab(viewModel: NotificationsViewModel) {
             item { Text("Keine Benachrichtigungen gefunden.", style = MaterialTheme.typography.bodyMedium) }
         }
         items(results, key = { it.id }) { NotificationRow(it) }
+    }
+
+    if (confirmEnable) {
+        AlertDialog(
+            onDismissRequest = { confirmEnable = false },
+            title = { Text("Benachrichtigungen archivieren?") },
+            text = {
+                Text(
+                    "MobileManager speichert dann Titel und Text jeder Benachrichtigung 7 Tage lang – auch private Nachrichten. " +
+                        "Die Inhalte werden mit einem Schlüssel aus dem Android Keystore verschlüsselt, bleiben nur auf diesem Gerät " +
+                        "und werden nie übertragen oder gesichert. Banking-, 2FA- und Passwort-Apps sind standardmäßig ausgenommen.",
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    viewModel.update { it.copy(notificationArchiveEnabled = true) }
+                    confirmEnable = false
+                }) { Text("Archiv einschalten") }
+            },
+            dismissButton = { TextButton(onClick = { confirmEnable = false }) { Text("Abbrechen") } },
+        )
+    }
+    if (pickExcluded) {
+        AppPickerDialog(
+            title = "Vom Archiv ausschließen",
+            apps = launchable,
+            selected = settings.archiveExcludedApps,
+            onDismiss = { pickExcluded = false },
+            onConfirm = {
+                viewModel.setArchiveExcludedApps(it)
+                pickExcluded = false
+            },
+        )
     }
 }
 

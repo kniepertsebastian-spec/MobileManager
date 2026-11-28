@@ -1,5 +1,6 @@
 package app.mobilemanager.data.protection
 
+import app.mobilemanager.di.AppCoroutines
 import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 import android.content.Context
@@ -37,9 +38,7 @@ import app.mobilemanager.data.work.AppNotifications
 import app.mobilemanager.domain.extras.PermissionDiffPolicy
 import app.mobilemanager.domain.model.SecurityEventType
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -310,7 +309,7 @@ class SensorLog @Inject constructor(
     private val foreground: ForegroundAppTracker,
 ) {
     private val file get() = File(context.filesDir, "sensor_log.json")
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val scope = AppCoroutines.scope("Protection", Dispatchers.IO)
     private val main = Handler(Looper.getMainLooper())
     private val _events = MutableStateFlow<List<SensorEvent>>(emptyList())
     val events: StateFlow<List<SensorEvent>> = _events.asStateFlow()

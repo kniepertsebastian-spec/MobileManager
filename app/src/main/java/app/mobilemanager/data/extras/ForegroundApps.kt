@@ -29,6 +29,7 @@ import app.mobilemanager.data.locker.LockerRepository
 import app.mobilemanager.data.local.AppVolumeRuleEntity
 import app.mobilemanager.data.permissions.PermissionChecker
 import app.mobilemanager.data.work.AppNotifications
+import app.mobilemanager.di.AppCoroutines
 import app.mobilemanager.domain.extras.FocusBrakePolicy
 import app.mobilemanager.domain.extras.ForegroundFilter
 import app.mobilemanager.domain.extras.PerAppVolumePolicy
@@ -36,7 +37,6 @@ import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.delay
@@ -67,14 +67,24 @@ class ForegroundAppTracker @Inject constructor(
     private val volume: PerAppVolumeController,
     private val locker: LockerController,
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val scope = AppCoroutines.scope("ForegroundApps")
     private val main = Handler(Looper.getMainLooper())
     val settings: StateFlow<ExtrasSettings?> = settingsRepository.settings.stateIn(scope, SharingStarted.Eagerly, null)
     private var lastPackage: String? = null
 
-    private val keyboards: Set<String> by lazy {
-        context.getSystemService(InputMethodManager::class.java)?.enabledInputMethodList?.map { it.packageName }?.toSet().orEmpty()
-    }
+    // Tastaturen können jederzeit hinzukommen oder wegfallen → kurz zwischenspeichern statt dauerhaft einfrieren.
+    @Volatile private var keyboardCache: Set<String> = emptySet()
+    @Volatile private var keyboardCacheAt = 0L
+    private val keyboards: Set<String>
+        get() {
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (keyboardCacheAt == 0L || now - keyboardCacheAt > KEYBOARD_CACHE_MS) {
+                keyboardCache = context.getSystemService(InputMethodManager::class.java)?.enabledInputMethodList
+                    ?.map { it.packageName }?.toSet().orEmpty()
+                keyboardCacheAt = now
+            }
+            return keyboardCache
+        }
 
     /** Zuletzt erkannte Vordergrund-App (für das Sensor-Protokoll). */
     @Volatile var currentPackage: String? = null
@@ -105,6 +115,10 @@ class ForegroundAppTracker @Inject constructor(
             lastPackage = null
             volume.restore()
         }
+    }
+
+    private companion object {
+        const val KEYBOARD_CACHE_MS = 60_000L
     }
 }
 
@@ -150,7 +164,7 @@ class PerAppVolumeController @Inject constructor(
     @ApplicationContext private val context: Context,
     private val dao: AppVolumeRuleDao,
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val scope = AppCoroutines.scope("ForegroundApps")
     private val rules: StateFlow<Map<String, Int>> = dao.observeAll()
         .map { list -> list.associate { it.packageName to it.volumePercent } }
         .stateIn(scope, SharingStarted.Eagerly, emptyMap())
@@ -193,13 +207,17 @@ class AppSwitchAccessibilityService : AccessibilityService() {
     @Inject lateinit var locker: LockerController
     @Inject lateinit var coordinator: ExtrasCoordinator
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    /** Pro Bindung neu: nach onUnbind() kann das System denselben Dienst erneut verbinden. */
+    private var scope: CoroutineScope? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = java.lang.ref.WeakReference(this)
         coordinator.sync()
-        scope.launch {
+        scope?.cancel()
+        val bound = AppCoroutines.scope("AppSwitchA11y", Dispatchers.Main)
+        scope = bound
+        bound.launch {
             combine(settings.settings, lockerRepository.settings) { extras, lock ->
                 Triple(extras.needsForegroundApp, lock.active, lock.active && lock.checkAllWindows)
             }.distinctUntilChanged().collect { (extrasNeeded, lockerActive, allWindows) ->
@@ -240,9 +258,16 @@ class AppSwitchAccessibilityService : AccessibilityService() {
 
     override fun onUnbind(intent: Intent?): Boolean {
         instance = null
-        scope.cancel()
+        scope?.cancel()
+        scope = null
         coordinator.sync()
         return super.onUnbind(intent)
+    }
+
+    override fun onDestroy() {
+        scope?.cancel()
+        scope = null
+        super.onDestroy()
     }
 
     companion object {
@@ -273,7 +298,7 @@ class ForegroundMonitorService : Service() {
     @Inject lateinit var notifications: AppNotifications
     @Inject lateinit var coordinator: ExtrasCoordinator
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val scope = AppCoroutines.scope("ForegroundApps")
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -352,7 +377,7 @@ class ExtrasCoordinator @Inject constructor(
     private val locker: LockerRepository,
     private val permissions: PermissionChecker,
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val scope = AppCoroutines.scope("ForegroundApps")
 
     fun sync() {
         scope.launch { apply(settings.current(), locker.current().active) }

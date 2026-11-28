@@ -42,6 +42,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import app.mobilemanager.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
@@ -170,7 +172,7 @@ private fun WarningCard(text: String, action: String, onAction: () -> Unit) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Warning, contentDescription = null)
+                Icon(Icons.Default.Warning, contentDescription = stringResource(R.string.cd_warning))
                 Spacer(Modifier.width(12.dp))
                 Text(text, style = MaterialTheme.typography.bodyMedium)
             }

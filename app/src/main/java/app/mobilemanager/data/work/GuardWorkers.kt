@@ -8,7 +8,6 @@ import app.mobilemanager.data.battery.BatteryGuard
 import app.mobilemanager.data.battery.BatteryMonitor
 import app.mobilemanager.data.battery.NightStandbyReporter
 import app.mobilemanager.data.guard.GuardSettingsRepository
-import app.mobilemanager.data.local.NotificationEntryDao
 import app.mobilemanager.data.media.ExpiredFilesRepository
 import app.mobilemanager.data.notifications.NotificationRepository
 import app.mobilemanager.data.security.PackageInstallMonitor
@@ -29,7 +28,7 @@ class GuardCheckWorker @AssistedInject constructor(
     private val batteryGuard: BatteryGuard,
 ) : CoroutineWorker(context, params) {
 
-    override suspend fun doWork(): Result {
+    override suspend fun doWork(): Result = guardedWork(runAttemptCount) {
         runCatching { packageMonitor.check() }
         runCatching { simMonitor.check() }
         batteryMonitor.current()?.let { runCatching { batteryGuard.evaluate(it) } }
@@ -48,7 +47,7 @@ class AlertSendWorker @AssistedInject constructor(
     private val securityEvents: SecurityEventRepository,
 ) : CoroutineWorker(context, params) {
 
-    override suspend fun doWork(): Result {
+    override suspend fun doWork(): Result = guardedWork(runAttemptCount) {
         val eventId = inputData.getLong(KEY_EVENT_ID, -1)
         if (eventId < 0) return Result.failure()
         val finalAttempt = runAttemptCount >= MAX_ATTEMPTS
@@ -75,7 +74,7 @@ class ExpiredFilesWorker @AssistedInject constructor(
     private val notifications: AppNotifications,
 ) : CoroutineWorker(context, params) {
 
-    override suspend fun doWork(): Result {
+    override suspend fun doWork(): Result = guardedWork(runAttemptCount) {
         val files = repository.findExpired(settings.current().expiredFilesAgeDays)
         settings.setExpiredFilesCount(files.size)
         val screenshots = files.count { repository.kindOf(it) == ExpiredFileKind.SCREENSHOT }
@@ -93,8 +92,9 @@ class NotificationCleanupWorker @AssistedInject constructor(
     private val repository: NotificationRepository,
 ) : CoroutineWorker(context, params) {
 
-    override suspend fun doWork(): Result {
+    override suspend fun doWork(): Result = guardedWork(runAttemptCount) {
         repository.purgeOld()
+        repository.sealLegacyEntries()
         return Result.success()
     }
 }
@@ -104,17 +104,17 @@ class NotificationCleanupWorker @AssistedInject constructor(
 class DigestWorker @AssistedInject constructor(
     @Assisted context: Context,
     @Assisted params: WorkerParameters,
-    private val dao: NotificationEntryDao,
+    private val repository: NotificationRepository,
     private val settings: GuardSettingsRepository,
     private val notifications: AppNotifications,
     private val scheduler: WorkScheduler,
 ) : CoroutineWorker(context, params) {
 
-    override suspend fun doWork(): Result {
-        val pending = dao.pendingDigest()
+    override suspend fun doWork(): Result = guardedWork(runAttemptCount) {
+        val pending = repository.pendingDigestOnce()
         if (pending.isNotEmpty()) {
             notifications.showDigest(pending.map { "${it.appLabel}: ${it.title.ifBlank { it.text }}" })
-            dao.markDelivered(pending.map { it.id })
+            repository.markDelivered(pending.map { it.id })
         }
         scheduler.scheduleDigest(settings.current())
         return Result.success()
@@ -131,7 +131,7 @@ class NightStandbyWorker @AssistedInject constructor(
     private val scheduler: WorkScheduler,
 ) : CoroutineWorker(context, params) {
 
-    override suspend fun doWork(): Result {
+    override suspend fun doWork(): Result = guardedWork(runAttemptCount) {
         if (inputData.getBoolean(KEY_IS_START, true)) reporter.onNightStart() else reporter.onNightEnd()
         scheduler.scheduleNightReport(settings.current())
         return Result.success()

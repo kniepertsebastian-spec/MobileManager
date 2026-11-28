@@ -6,7 +6,7 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.os.IBinder
-import android.util.Log
+import app.mobilemanager.util.logW
 import app.mobilemanager.BuildConfig
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CompletableDeferred
@@ -108,7 +108,7 @@ class ShizukuManager @Inject constructor(
             if (Shizuku.pingBinder() && !Shizuku.shouldShowRequestPermissionRationale()) {
                 Shizuku.requestPermission(REQUEST_CODE)
             }
-        }.onFailure { Log.w(TAG, "Shizuku-Berechtigung konnte nicht angefragt werden", it) }
+        }.onFailure { logW(TAG, "Shizuku-Berechtigung konnte nicht angefragt werden", it) }
     }
 
     fun launchShizukuAppIntent(): Intent? =
@@ -168,7 +168,7 @@ class ShizukuManager @Inject constructor(
         val deferred = CompletableDeferred<IShellService?>()
         pendingConnection = deferred
         val bound = runCatching { Shizuku.bindUserService(userServiceArgs, connection) }
-            .onFailure { Log.w(TAG, "bindUserService fehlgeschlagen", it) }
+            .onFailure { logW(TAG, "bindUserService fehlgeschlagen", it) }
             .isSuccess
         if (!bound) return null
         withTimeoutOrNull(BIND_TIMEOUT_MS) { deferred.await() }.also { pendingConnection = null }

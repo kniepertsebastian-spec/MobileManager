@@ -1,5 +1,6 @@
 package app.mobilemanager.data.locker
 
+import app.mobilemanager.di.AppCoroutines
 import android.content.BroadcastReceiver
 import android.content.ClipboardManager
 import android.content.Context
@@ -35,9 +36,7 @@ import app.mobilemanager.domain.extras.SecondFactor
 import app.mobilemanager.domain.model.SecurityEventType
 import app.mobilemanager.ui.locker.LockActivity
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -236,7 +235,7 @@ class LockerController @Inject constructor(
     private val securityEvents: SecurityEventRepository,
     appSettings: SettingsRepository,
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val scope = AppCoroutines.scope("Locker", Dispatchers.Default)
     private val main = Handler(Looper.getMainLooper())
     val settings: StateFlow<LockerSettings?> = repository.settings.stateIn(scope, SharingStarted.Eagerly, null)
     private val connectedBluetooth: StateFlow<Set<String>> =

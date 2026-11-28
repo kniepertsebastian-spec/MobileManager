@@ -26,7 +26,7 @@ class AppStopperWorker @AssistedInject constructor(
     private val notifications: AppNotifications,
 ) : CoroutineWorker(context, params) {
 
-    override suspend fun doWork(): Result {
+    override suspend fun doWork(): Result = guardedWork(runAttemptCount) {
         val method = stopApps.availableMethod(allowAccessibility = false)
         if (method != ForceStopMethod.SHIZUKU) {
             notifications.showShizukuUnavailable()
@@ -50,7 +50,7 @@ class NightScanWorker @AssistedInject constructor(
     private val notifications: AppNotifications,
 ) : CoroutineWorker(context, params) {
 
-    override suspend fun doWork(): Result {
+    override suspend fun doWork(): Result = guardedWork(runAttemptCount) {
         val duplicates = repository.findDuplicates { }
         val withoutPeople = repository.analyzeOldImages(settings.current().photoAgeMonths) { }
         val duplicateCount = duplicates.sumOf { it.duplicates.size }

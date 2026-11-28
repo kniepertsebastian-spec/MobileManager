@@ -10,13 +10,16 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
+private const val LEGACY_PERMISSION_PREFS = "permission_requests"
 
 data class AppSettings(
     val onboardingDone: Boolean = false,
@@ -43,6 +46,7 @@ class SettingsRepository @Inject constructor(
         val NIGHT_ROUTINE = booleanPreferencesKey("night_routine_enabled")
         val CONNECTED_BT_DEVICES = stringSetPreferencesKey("connected_bt_devices")
         val LAST_BT_DEVICE_NAME = stringPreferencesKey("last_bt_device_name")
+        val REQUESTED_PERMISSIONS = stringSetPreferencesKey("requested_runtime_permissions")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { p ->
@@ -57,6 +61,21 @@ class SettingsRepository @Inject constructor(
     }
 
     suspend fun current(): AppSettings = settings.first()
+
+    /** Runtime-Berechtigungen, die schon einmal angefragt wurden (für „dauerhaft abgelehnt“ → App-Infos). */
+    val requestedPermissions: Flow<Set<String>> = context.dataStore.data.map { it[Keys.REQUESTED_PERMISSIONS].orEmpty() }
+
+    suspend fun markPermissionRequested(permission: String) =
+        context.dataStore.edit { it[Keys.REQUESTED_PERMISSIONS] = it[Keys.REQUESTED_PERMISSIONS].orEmpty() + permission }
+
+    /** Einmalig: die früheren SharedPreferences „permission_requests“ übernehmen und löschen. */
+    suspend fun migrateLegacyPermissionPrefs() = withContext(Dispatchers.IO) {
+        val legacy = context.getSharedPreferences(LEGACY_PERMISSION_PREFS, Context.MODE_PRIVATE)
+        val requested = legacy.all.filterValues { it == true }.keys
+        if (legacy.all.isEmpty()) return@withContext
+        context.dataStore.edit { it[Keys.REQUESTED_PERMISSIONS] = it[Keys.REQUESTED_PERMISSIONS].orEmpty() + requested }
+        context.deleteSharedPreferences(LEGACY_PERMISSION_PREFS)
+    }
 
     suspend fun setOnboardingDone() = context.dataStore.edit { it[Keys.ONBOARDING_DONE] = true }
     suspend fun setInactiveThresholdHours(hours: Int) = context.dataStore.edit { it[Keys.THRESHOLD_HOURS] = hours }

@@ -25,7 +25,7 @@ class ProtectionCheckWorker @AssistedInject constructor(
     private val networkPolicy: NetworkPolicyController,
 ) : CoroutineWorker(context, params) {
 
-    override suspend fun doWork(): Result {
+    override suspend fun doWork(): Result = guardedWork(runAttemptCount) {
         runCatching { networkPolicy.periodicCheck() }
         runCatching { permissionDiff.check() }
         runCatching { watchdog.check() }
@@ -42,7 +42,7 @@ class BlocklistUpdateWorker @AssistedInject constructor(
     private val notifications: AppNotifications,
 ) : CoroutineWorker(context, params) {
 
-    override suspend fun doWork(): Result {
+    override suspend fun doWork(): Result = guardedWork(runAttemptCount) {
         val http = OkHttpClient.Builder()
             .connectTimeout(20, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
@@ -70,7 +70,7 @@ class TempPermissionRevokeWorker @AssistedInject constructor(
     private val notifications: AppNotifications,
 ) : CoroutineWorker(context, params) {
 
-    override suspend fun doWork(): Result {
+    override suspend fun doWork(): Result = guardedWork(runAttemptCount) {
         val pkg = inputData.getString(KEY_PACKAGE) ?: return Result.failure()
         val permissions = inputData.getNullableStringArray(KEY_PERMISSIONS)?.filterNotNull().orEmpty()
         val error = powerTools.revokeNow(pkg, permissions)

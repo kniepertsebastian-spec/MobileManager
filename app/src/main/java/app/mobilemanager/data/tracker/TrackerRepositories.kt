@@ -232,11 +232,7 @@ class TrackerStatsRepository @Inject constructor(private val dao: TrackerStatsDa
     val blockedWeek: Flow<Int> get() = dao.totalSince(daysAgo(6))
 
     suspend fun add(apps: Map<String, Int>, domains: Map<String, Int>) {
-        val day = today()
-        apps.forEach { (pkg, count) -> if (count > 0) dao.addApp(day, pkg, count) }
-        domains.forEach { (domain, count) -> if (count > 0) dao.addDomain(day, domain, count) }
-        dao.deleteAppsBefore(daysAgo(RETENTION_DAYS))
-        dao.deleteDomainsBefore(daysAgo(RETENTION_DAYS))
+        dao.addBatch(today(), apps, domains, daysAgo(RETENTION_DAYS))
     }
 
     suspend fun clear() {

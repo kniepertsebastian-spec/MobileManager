@@ -5,6 +5,7 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
@@ -103,18 +104,26 @@ interface NotificationEntryDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(entry: NotificationEntryEntity): Long
 
-    /** Volltextsuche über App-Name, Titel und Text; [packageName] = null → alle Apps. */
+    /**
+     * Alle Einträge des Archiv-Fensters (Titel/Text sind verschlüsselt – die Volltextsuche läuft danach im Speicher,
+     * siehe NotificationRepository). [packageName] = null → alle Apps.
+     */
     @Query(
         """
         SELECT * FROM notification_entries
         WHERE (:packageName IS NULL OR packageName = :packageName)
-          AND (:query = '' OR title LIKE '%' || :query || '%' OR text LIKE '%' || :query || '%'
-               OR appLabel LIKE '%' || :query || '%')
         ORDER BY postedAt DESC
-        LIMIT 500
+        LIMIT :limit
         """,
     )
-    fun search(query: String, packageName: String?): Flow<List<NotificationEntryEntity>>
+    fun observeWindow(packageName: String?, limit: Int): Flow<List<NotificationEntryEntity>>
+
+    /** Einträge aus der Zeit vor der Feldverschlüsselung. */
+    @Query("SELECT * FROM notification_entries WHERE title NOT LIKE :prefix || '%' OR text NOT LIKE :prefix || '%'")
+    suspend fun unsealed(prefix: String): List<NotificationEntryEntity>
+
+    @Query("UPDATE notification_entries SET title = :title, text = :text WHERE id = :id")
+    suspend fun updateContent(id: Long, title: String, text: String)
 
     @Query(
         """
@@ -198,6 +207,15 @@ interface TrackerStatsDao {
 
     @Query("DELETE FROM tracker_domain_stats")
     suspend fun clearDomains()
+
+    /** Alle Zähler eines Flushs atomar in einer Transaktion schreiben und alte Tage aufräumen. */
+    @Transaction
+    suspend fun addBatch(day: Int, apps: Map<String, Int>, domains: Map<String, Int>, cutoffDay: Int) {
+        apps.forEach { (pkg, count) -> if (count > 0) addApp(day, pkg, count) }
+        domains.forEach { (domain, count) -> if (count > 0) addDomain(day, domain, count) }
+        deleteAppsBefore(cutoffDay)
+        deleteDomainsBefore(cutoffDay)
+    }
 }
 
 @Dao

@@ -11,6 +11,8 @@ import app.mobilemanager.domain.model.PermissionStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -25,7 +27,15 @@ class PermissionsViewModel @Inject constructor(
     private val _statuses = MutableStateFlow(checker.statusList())
     val statuses: StateFlow<List<PermissionStatus>> = _statuses.asStateFlow()
 
+    val requestedPermissions: StateFlow<Set<String>> =
+        settings.requestedPermissions.stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
+
+    fun markPermissionRequested(permission: String) {
+        viewModelScope.launch { settings.markPermissionRequested(permission) }
+    }
+
     init {
+        viewModelScope.launch { settings.migrateLegacyPermissionPrefs() }
         // Shizuku meldet Statuswechsel asynchron (Binder empfangen, Berechtigung erteilt).
         viewModelScope.launch { shizukuManager.state.collect { refresh() } }
     }

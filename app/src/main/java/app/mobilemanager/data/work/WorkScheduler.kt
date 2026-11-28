@@ -73,6 +73,12 @@ class WorkScheduler @Inject constructor(
         scheduleNightReport(settings)
     }
 
+    /** Fallback, wenn der Echtzeit-Wächter nicht starten darf: 15-Minuten-Check sicherstellen (bestehenden behalten). */
+    fun ensureGuardFallback() {
+        val request = PeriodicWorkRequestBuilder<GuardCheckWorker>(15, TimeUnit.MINUTES).addTag(GUARD_CHECK_WORK).build()
+        workManager.enqueueUniquePeriodicWork(GUARD_CHECK_WORK, ExistingPeriodicWorkPolicy.KEEP, request)
+    }
+
     /* ---------- Phase 4 ---------- */
 
     fun applyPhase4(periodicCheck: Boolean, subscriptions: Boolean) {

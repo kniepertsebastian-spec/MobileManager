@@ -1,5 +1,6 @@
 package app.mobilemanager.data.network
 
+import app.mobilemanager.di.AppCoroutines
 import android.app.PendingIntent
 import android.app.usage.NetworkStatsManager
 import android.content.BroadcastReceiver
@@ -34,10 +35,8 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -174,7 +173,7 @@ class NetworkPolicyController @Inject constructor(
     private val shizuku: ShizukuManager,
     private val notifications: AppNotifications,
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val scope = AppCoroutines.scope("NetworkPolicy", Dispatchers.Default)
     private val mutex = Mutex()
     private val cm get() = context.getSystemService(ConnectivityManager::class.java)
 
@@ -468,7 +467,7 @@ class NetworkWakeReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val controller = EntryPointAccessors.fromApplication(context.applicationContext, WakeEntryPoint::class.java).networkPolicy()
         val pending = goAsync()
-        CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
+        AppCoroutines.scope("NetworkPolicy", Dispatchers.Default).launch {
             try {
                 controller.apply()
             } finally {

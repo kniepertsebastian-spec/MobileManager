@@ -4,7 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.media.AudioManager
 import android.provider.Settings
-import android.util.Log
+import app.mobilemanager.util.logW
 import app.mobilemanager.domain.model.BluetoothRule
 import app.mobilemanager.domain.model.EqProfile
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -41,21 +41,21 @@ class AutomationExecutor @Inject constructor(
         val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
         val target = (max * percent.coerceIn(0, 100) / 100f).roundToInt()
         runCatching { audio.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0) }
-            .onFailure { Log.w(TAG, "Lautstärke konnte nicht gesetzt werden", it) }
+            .onFailure { logW(TAG, "Lautstärke konnte nicht gesetzt werden", it) }
     }
 
     private fun launchApp(packageName: String) {
         val intent = context.packageManager.getLaunchIntentForPackage(packageName) ?: run {
-            Log.w(TAG, "Keine startbare Activity für $packageName")
+            logW(TAG, "Keine startbare Activity für $packageName")
             return
         }
         if (!Settings.canDrawOverlays(context)) {
             // Ohne "Über anderen Apps einblenden" blockiert Android Activity-Starts aus dem Hintergrund.
-            Log.w(TAG, "SYSTEM_ALERT_WINDOW fehlt – App-Start aus dem Hintergrund wird blockiert")
+            logW(TAG, "SYSTEM_ALERT_WINDOW fehlt – App-Start aus dem Hintergrund wird blockiert")
         }
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
         runCatching { context.startActivity(intent) }
-            .onFailure { Log.w(TAG, "App-Start fehlgeschlagen", it) }
+            .onFailure { logW(TAG, "App-Start fehlgeschlagen", it) }
     }
 
     private companion object {

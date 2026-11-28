@@ -23,6 +23,8 @@ playServicesLocation = "21.4.0"
 androidxTestExt = "1.3.0"
 androidxTestRunner = "1.7.0"
 exifinterface = "1.4.2"
+mockk = "1.14.5"
+kotlinxSerialization = "1.8.1"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
@@ -72,6 +74,8 @@ androidx-compose-ui-test-junit4 = { module = "androidx.compose.ui:ui-test-junit4
 androidx-compose-ui-test-manifest = { module = "androidx.compose.ui:ui-test-manifest" }
 androidx-exifinterface = { module = "androidx.exifinterface:exifinterface", version.ref = "exifinterface" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
+mockk = { module = "io.mockk:mockk", version.ref = "mockk" }
+kotlinx-serialization-core = { module = "org.jetbrains.kotlinx:kotlinx-serialization-core", version.ref = "kotlinxSerialization" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

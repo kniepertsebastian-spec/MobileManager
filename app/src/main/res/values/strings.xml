@@ -20,4 +20,80 @@
     <string name="shortcut_firewall">Firewall</string>
     <string name="shortcut_stop_apps">Apps stoppen</string>
     <string name="shortcut_caffeine">Koffein</string>
+    <!-- Navigation -->
+    <string name="nav_dashboard">Dashboard</string>
+    <string name="nav_app_stopper">App-Stopper</string>
+    <string name="nav_cleaner">Cleaner</string>
+    <string name="nav_automation">Automatik</string>
+    <string name="nav_guard">Wächter</string>
+    <string name="nav_extras">Launcher &amp; Extras</string>
+    <string name="nav_permissions">Berechtigungen</string>
+    <string name="nav_settings">Einstellungen</string>
+
+    <!-- Gemeinsame Texte -->
+    <string name="cd_warning">Warnung</string>
+    <string name="action_cancel">Abbrechen</string>
+    <string name="action_ok">OK</string>
+    <string name="action_details">Details</string>
+    <string name="search_apps">Apps durchsuchen</string>
+    <string name="app_picker_confirm">Übernehmen (%1$d)</string>
+    <string name="app_selection_none">Keine Apps gewählt</string>
+    <plurals name="app_selection_count">
+        <item quantity="one">%1$d App</item>
+        <item quantity="other">%1$d Apps</item>
+    </plurals>
+    <string name="shizuku_required_title">Shizuku nötig</string>
+    <string name="shizuku_required_not_installed">Diese Funktion braucht Shizuku (Shell-Rechte ohne Root). Installiere Shizuku und starte es über „Kabelloses Debugging“.</string>
+    <string name="shizuku_required_not_running">Shizuku läuft nicht – nach jedem Neustart einmal in der Shizuku-App starten (Kabelloses Debugging).</string>
+    <string name="shizuku_required_no_permission">MobileManager hat noch keine Shizuku-Berechtigung.</string>
+    <string name="shizuku_grant_permission">Berechtigung erteilen</string>
+    <string name="shizuku_open">Shizuku öffnen</string>
+
+    <!-- Dashboard -->
+    <plurals name="dashboard_missing_permissions">
+        <item quantity="one">%1$d Berechtigung fehlt</item>
+        <item quantity="other">%1$d Berechtigungen fehlen</item>
+    </plurals>
+    <string name="dashboard_check">Prüfen</string>
+    <string name="dashboard_checking">Wird geprüft …</string>
+    <string name="dashboard_no_inactive">Keine inaktiven Apps gefunden</string>
+    <plurals name="dashboard_inactive_apps">
+        <item quantity="one">%1$d inaktive App gefunden</item>
+        <item quantity="other">%1$d inaktive Apps gefunden</item>
+    </plurals>
+    <string name="dashboard_stopping">Stoppe %1$s (%2$d/%3$d)</string>
+    <plurals name="dashboard_stopped">
+        <item quantity="one">%1$d App gestoppt</item>
+        <item quantity="other">%1$d Apps gestoppt</item>
+    </plurals>
+    <plurals name="dashboard_stop_errors">
+        <item quantity="one">, %1$d Fehler</item>
+        <item quantity="other">, %1$d Fehler</item>
+    </plurals>
+    <string name="dashboard_shizuku_inactive">Shizuku ist nicht aktiv – Apps können derzeit nicht beendet werden.</string>
+    <string name="dashboard_stop_all">Alle stoppen</string>
+    <string name="dashboard_storage">Speicher</string>
+    <string name="dashboard_free">%1$s frei</string>
+    <string name="dashboard_of_total">von %1$s</string>
+    <string name="dashboard_last_cleanup">Zuletzt %1$s bereinigt</string>
+    <string name="dashboard_no_cleanup">Noch nichts bereinigt</string>
+    <string name="dashboard_start_scan">Scan starten</string>
+    <string name="dashboard_bluetooth">Bluetooth-Automatik</string>
+    <string name="dashboard_no_rules">Keine aktiven Regeln</string>
+    <plurals name="dashboard_active_rules">
+        <item quantity="one">%1$d aktive Regel</item>
+        <item quantity="other">%1$d aktive Regeln</item>
+    </plurals>
+    <string name="dashboard_no_device">Kein Gerät verbunden</string>
+    <string name="dashboard_connected">Verbunden: %1$s</string>
+    <string name="dashboard_manage_rules">Regeln verwalten</string>
+    <string name="dashboard_battery">Akku %1$d %% · %2$.1f °C</string>
+    <string name="dashboard_battery_reading">Akku wird gelesen …</string>
+    <string name="dashboard_night_report">Nacht-Standby: −%1$d %% in %2$.1f h</string>
+    <string name="dashboard_no_night_report">Noch kein Nacht-Standby-Bericht</string>
+    <plurals name="dashboard_security_events">
+        <item quantity="one">%1$d neues Sicherheitsereignis</item>
+        <item quantity="other">%1$d neue Sicherheitsereignisse</item>
+    </plurals>
+    <string name="dashboard_open_guard">Wächter öffnen</string>
 </resources>

@@ -1,5 +1,6 @@
 package app.mobilemanager.data.tiles
 
+import app.mobilemanager.di.AppCoroutines
 import android.app.PendingIntent
 import android.content.Intent
 import android.os.Build
@@ -15,16 +16,14 @@ import app.mobilemanager.data.tracker.TrackerSettingsRepository
 import app.mobilemanager.data.tracker.TrackerVpnController
 import app.mobilemanager.data.work.WorkScheduler
 import dagger.hilt.android.AndroidEntryPoint
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /** Phase 4.6: gemeinsame Basis der Schnelleinstellungs-Kacheln. */
 abstract class BaseTileService : TileService() {
-    protected val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    protected val scope = AppCoroutines.scope("Tiles", Dispatchers.Main)
 
     override fun onStartListening() {
         super.onStartListening()

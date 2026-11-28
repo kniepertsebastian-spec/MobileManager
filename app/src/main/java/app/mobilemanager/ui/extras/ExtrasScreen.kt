@@ -222,7 +222,7 @@ fun ExtrasScreen(
             ExtraCard(
                 icon = Icons.Default.Archive,
                 title = "APK-Backup",
-                status = if (settings.apkBackupEnabled) "Documents/PixelManagerBackups" else "Ausgeblendet",
+                status = if (settings.apkBackupEnabled) "Documents/${app.mobilemanager.data.extras.ApkBackupRepository.BACKUP_DIR}" else "Ausgeblendet",
                 detail = "Sichert installierte Apps als APK – Rettung bei schlechten Updates",
                 checked = settings.apkBackupEnabled,
                 onCheckedChange = { v -> viewModel.update { it.copy(apkBackupEnabled = v) } },

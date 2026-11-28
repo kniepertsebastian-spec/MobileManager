@@ -31,32 +31,35 @@ private val Context.secureStore: DataStore<Preferences> by preferencesDataStore(
  * AES-256-GCM mit einem nicht exportierbaren Schlüssel im Android Keystore.
  *
  * Ersetzt das inzwischen abgekündigte `EncryptedSharedPreferences` (androidx.security-crypto)
- * durch denselben Mechanismus ohne veraltete APIs.
+ * durch denselben Mechanismus ohne veraltete APIs. Jede Verwendung bekommt ihren eigenen [alias].
  */
-@Singleton
-class KeystoreCipher @Inject constructor() {
+open class AesKeystoreCipher(private val alias: String) {
 
-    fun encrypt(plain: String): String {
-        val cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(Cipher.ENCRYPT_MODE, key())
-        val encrypted = cipher.doFinal(plain.toByteArray(Charsets.UTF_8))
-        return Base64.encodeToString(cipher.iv + encrypted, Base64.NO_WRAP)
-    }
+    fun encrypt(plain: String): String = Base64.encodeToString(encryptBytes(plain.toByteArray(Charsets.UTF_8)), Base64.NO_WRAP)
 
     fun decrypt(encoded: String): String? = runCatching {
-        val bytes = Base64.decode(encoded, Base64.NO_WRAP)
+        decryptBytes(Base64.decode(encoded, Base64.NO_WRAP))?.toString(Charsets.UTF_8)
+    }.getOrNull()
+
+    fun encryptBytes(plain: ByteArray): ByteArray {
+        val cipher = Cipher.getInstance(TRANSFORMATION)
+        cipher.init(Cipher.ENCRYPT_MODE, key())
+        return cipher.iv + cipher.doFinal(plain)
+    }
+
+    fun decryptBytes(bytes: ByteArray): ByteArray? = runCatching {
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(TAG_BITS, bytes, 0, IV_BYTES))
-        String(cipher.doFinal(bytes, IV_BYTES, bytes.size - IV_BYTES), Charsets.UTF_8)
+        cipher.doFinal(bytes, IV_BYTES, bytes.size - IV_BYTES)
     }.getOrNull()
 
     @Synchronized
     private fun key(): SecretKey {
         val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
-        (keyStore.getEntry(ALIAS, null) as? KeyStore.SecretKeyEntry)?.let { return it.secretKey }
+        (keyStore.getEntry(alias, null) as? KeyStore.SecretKeyEntry)?.let { return it.secretKey }
         val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
         generator.init(
-            KeyGenParameterSpec.Builder(ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+            KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
                 .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
                 .setKeySize(256)
@@ -67,12 +70,15 @@ class KeystoreCipher @Inject constructor() {
 
     private companion object {
         const val ANDROID_KEYSTORE = "AndroidKeyStore"
-        const val ALIAS = "mobilemanager_alert_credentials"
         const val TRANSFORMATION = "AES/GCM/NoPadding"
         const val IV_BYTES = 12
         const val TAG_BITS = 128
     }
 }
+
+/** Schlüssel für Alarm-Zugangsdaten und App-Sperre. */
+@Singleton
+class KeystoreCipher @Inject constructor() : AesKeystoreCipher("mobilemanager_alert_credentials")
 
 /** Speichert die komplette [AlertConfig] (inkl. Empfänger-Adresse) als ein verschlüsseltes JSON-Blob. */
 @Singleton

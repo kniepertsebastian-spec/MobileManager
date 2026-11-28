@@ -1,5 +1,6 @@
 package app.mobilemanager.data.security
 
+import app.mobilemanager.di.AppCoroutines
 import android.app.admin.DeviceAdminReceiver
 import android.app.admin.DevicePolicyManager
 import android.content.BroadcastReceiver
@@ -22,9 +23,7 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -41,7 +40,7 @@ interface SecurityEntryPoint {
     fun deviceAdmin(): DeviceAdminHelper
 }
 
-private val receiverScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+private val receiverScope = AppCoroutines.scope("SecurityReceivers", Dispatchers.Default)
 
 /** goAsync erlaubt ca. 10 s; großzügig darunter bleiben. */
 private const val MAX_RECEIVER_RUNTIME_MS = 8_000L

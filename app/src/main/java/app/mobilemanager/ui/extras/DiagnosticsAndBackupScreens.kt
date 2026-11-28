@@ -35,6 +35,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -229,7 +230,9 @@ fun ApkBackupScreen(onBack: () -> Unit, viewModel: ApkBackupViewModel = hiltView
     val apps by viewModel.apps.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
-    var query by remember { mutableStateOf("") }
+    var query by rememberSaveable { mutableStateOf("") }
+    // Filtern außerhalb der LazyColumn-DSL: nur neu, wenn sich Liste oder Suchbegriff ändern.
+    val filtered = remember(apps, query) { apps?.filter { query.isBlank() || it.label.contains(query, ignoreCase = true) } }
     var message by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(message) {
         message?.let {
@@ -259,11 +262,11 @@ fun ApkBackupScreen(onBack: () -> Unit, viewModel: ApkBackupViewModel = hiltView
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
-                val list = apps
+                val list = filtered
                 if (list == null) {
                     item { CircularProgressIndicator(Modifier.padding(16.dp)) }
                 } else {
-                    items(list.filter { query.isBlank() || it.label.contains(query, ignoreCase = true) }, key = { it.packageName }) { app ->
+                    items(list, key = { it.packageName }) { app ->
                         Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                             AppIcon(app.packageName, size = 36.dp)
                             Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {

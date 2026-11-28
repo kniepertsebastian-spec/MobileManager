@@ -54,3 +54,13 @@
 -dontwarn org.bouncycastle.**
 -dontwarn org.conscrypt.**
 -dontwarn org.openjsse.**
+
+# --- Logging (Phase 4.1) ---------------------------------------------------------
+# Debug-/Info-/Warn-Logs aus Release-Builds entfernen (zusätzlich zu den BuildConfig.DEBUG-Abfragen im Code).
+# Log.e bleibt: echte Fehler sollen im Ernstfall per logcat nachvollziehbar sein.
+-assumenosideeffects class android.util.Log {
+    public static *** v(...);
+    public static *** d(...);
+    public static *** i(...);
+    public static *** w(...);
+}

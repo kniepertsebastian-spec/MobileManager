@@ -34,6 +34,23 @@ class AppDatabaseMigrationTest {
     }
 
     @Test
+    fun migrate2To3KeepsArchiveAndAddsTrackerTables() {
+        helper.createDatabase(TEST_DB, 2).use { db ->
+            db.execSQL(
+                "INSERT INTO notification_entries (notificationKey, packageName, appLabel, title, text, postedAt, digestState) " +
+                    "VALUES ('k', 'com.example', 'Example', 'Titel', 'Text', 1, 0)",
+            )
+        }
+        helper.runMigrationsAndValidate(TEST_DB, 3, true).use { db ->
+            db.query("SELECT title FROM notification_entries").use { c ->
+                c.moveToFirst()
+                assertEquals("Titel", c.getString(0))
+            }
+            db.execSQL("INSERT INTO tracker_app_stats (day, packageName, blocked) VALUES (20261128, 'com.example', 3)")
+        }
+    }
+
+    @Test
     fun migrateAllVersionsToLatest() {
         helper.createDatabase(TEST_DB, 1).close()
         helper.runMigrationsAndValidate(TEST_DB, LATEST, true).close()

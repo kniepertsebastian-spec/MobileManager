@@ -10,15 +10,17 @@ import android.service.notification.StatusBarNotification
 import app.mobilemanager.data.guard.GuardSettingsRepository
 import app.mobilemanager.data.local.NotificationEntryDao
 import app.mobilemanager.data.local.NotificationEntryEntity
+import app.mobilemanager.di.AppCoroutines
 import app.mobilemanager.domain.guard.DigestPolicy
+import app.mobilemanager.domain.guard.SensitiveApps
 import app.mobilemanager.domain.model.ArchivedNotification
 import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
@@ -29,14 +31,41 @@ import javax.inject.Singleton
 class NotificationRepository @Inject constructor(
     @ApplicationContext private val context: Context,
     private val dao: NotificationEntryDao,
+    private val cipher: NotificationCipher,
 ) {
-    fun search(query: String, packageName: String?): Flow<List<ArchivedNotification>> =
-        dao.search(query.trim(), packageName).map { list -> list.map { it.toDomain() } }
+    /** Volltextsuche über App-Name, Titel und Text – nach dem Entschlüsseln im Speicher über das 7-Tage-Fenster. */
+    fun search(query: String, packageName: String?): Flow<List<ArchivedNotification>> {
+        val q = query.trim()
+        return dao.observeWindow(packageName, WINDOW_LIMIT).map { list ->
+            list.asSequence()
+                .map { it.toDomain() }
+                .filter { q.isEmpty() || it.title.contains(q, true) || it.text.contains(q, true) || it.appLabel.contains(q, true) }
+                .take(RESULT_LIMIT)
+                .toList()
+        }.flowOn(Dispatchers.Default)
+    }
 
     val apps = dao.observeApps()
 
     val pendingDigest: Flow<List<ArchivedNotification>> =
-        dao.observePendingDigest().map { list -> list.map { it.toDomain() } }
+        dao.observePendingDigest().map { list -> list.map { it.toDomain() } }.flowOn(Dispatchers.Default)
+
+    /** Für den Digest-Worker: entschlüsselte, noch nicht zugestellte Meldungen. */
+    suspend fun pendingDigestOnce(): List<ArchivedNotification> = dao.pendingDigest().map { it.toDomain() }
+
+    suspend fun markDelivered(ids: List<Long>) = dao.markDelivered(ids)
+
+    suspend fun insert(entry: NotificationEntryEntity) =
+        dao.insert(entry.copy(title = cipher.seal(entry.title), text = cipher.seal(entry.text)))
+
+    /** Einmalig: Einträge aus der Zeit vor der Verschlüsselung nachträglich verschlüsseln. */
+    suspend fun sealLegacyEntries() {
+        dao.unsealed(SEALED_PREFIX).forEach { e ->
+            val title = if (cipher.isSealed(e.title)) e.title else cipher.seal(e.title)
+            val text = if (cipher.isSealed(e.text)) e.text else cipher.seal(e.text)
+            dao.updateContent(e.id, title, text)
+        }
+    }
 
     suspend fun clear() = dao.clear()
 
@@ -51,14 +80,18 @@ class NotificationRepository @Inject constructor(
         id = id,
         packageName = packageName,
         appLabel = appLabel,
-        title = title,
-        text = text,
+        title = cipher.open(title) ?: UNREADABLE,
+        text = cipher.open(text) ?: "",
         postedAt = postedAt,
         isDigest = digestState != NotificationEntryEntity.DIGEST_NONE,
     )
 
     companion object {
         const val ARCHIVE_DAYS = 7L
+        private const val WINDOW_LIMIT = 20_000
+        private const val RESULT_LIMIT = 500
+        private const val SEALED_PREFIX = "§e1§"
+        private const val UNREADABLE = "(nicht mehr lesbar)"
     }
 }
 
@@ -72,11 +105,16 @@ class NotificationRepository @Inject constructor(
 @AndroidEntryPoint
 class NotificationArchiveService : NotificationListenerService() {
 
-    @Inject lateinit var dao: NotificationEntryDao
+    @Inject lateinit var repository: NotificationRepository
     @Inject lateinit var settings: GuardSettingsRepository
     @Inject lateinit var locker: app.mobilemanager.data.locker.LockerRepository
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val scope = AppCoroutines.scope("NotificationArchive", Dispatchers.IO)
+
+    override fun onListenerConnected() {
+        super.onListenerConnected()
+        scope.launch { repository.sealLegacyEntries() }
+    }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         if (sbn.packageName == packageName) return
@@ -105,8 +143,12 @@ class NotificationArchiveService : NotificationListenerService() {
             val hidden = lock.enabled && lock.hideNotifications && sbn.packageName in lock.packages
             if (hidden) runCatching { cancelNotification(sbn.key) }
             if (isGroupSummary || (title.isBlank() && text.isBlank())) return@launch
-            if (!s.notificationArchiveEnabled && !isDigest && !hidden) return@launch
-            dao.insert(
+            if (!isDigest && !hidden) {
+                if (!s.notificationArchiveEnabled) return@launch
+                // Phase 2.2: TANs, 2FA-Codes und Tresor-Meldungen nicht aufheben.
+                if (SensitiveApps.excluded(sbn.packageName, s.archiveExcludeSensitive, s.archiveExcludedApps)) return@launch
+            }
+            repository.insert(
                 NotificationEntryEntity(
                     notificationKey = sbn.key,
                     packageName = sbn.packageName,

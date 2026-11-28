@@ -31,6 +31,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -288,7 +289,7 @@ private enum class PickPurpose { APP_OPS, TEMP }
 
 @Composable
 private fun SingleAppPicker(apps: List<LaunchableApp>, onDismiss: () -> Unit, onPick: (LaunchableApp) -> Unit) {
-    var query by remember { mutableStateOf("") }
+    var query by rememberSaveable { mutableStateOf("") }
     val filtered = remember(apps, query) { apps.filter { query.isBlank() || it.label.contains(query, ignoreCase = true) } }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.fillMaxSize()) {
@@ -370,7 +371,7 @@ private fun TempPermissionDialog(app: LaunchableApp, onDismiss: () -> Unit, onGr
 @Composable
 private fun BloatwareDialog(viewModel: PowerToolsViewModel, onDismiss: () -> Unit) {
     val apps by viewModel.systemApps.collectAsStateWithLifecycle()
-    var query by remember { mutableStateOf("") }
+    var query by rememberSaveable { mutableStateOf("") }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.fillMaxSize()) {
             Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {

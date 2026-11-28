@@ -37,9 +37,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.core.content.edit
 import androidx.core.net.toUri
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
@@ -66,6 +67,7 @@ fun PermissionsScreen(
 ) {
     val context = LocalContext.current
     val statuses by viewModel.statuses.collectAsStateWithLifecycle()
+    val requested by viewModel.requestedPermissions.collectAsStateWithLifecycle()
 
     // Änderungen sofort nach Rückkehr aus den Android-Einstellungen erkennen.
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh() }
@@ -94,6 +96,8 @@ fun PermissionsScreen(
                 mediaPermissions(),
                 Manifest.permission.READ_MEDIA_IMAGES,
                 status,
+                requested = requested,
+                markRequested = viewModel::markPermissionRequested,
                 launch = { runtimeLauncher.launch(it) },
                 openSettings = { startSafely(viewModel.settingsIntent(status.kind), null) },
             )
@@ -102,6 +106,8 @@ fun PermissionsScreen(
                 arrayOf(Manifest.permission.BLUETOOTH_CONNECT),
                 Manifest.permission.BLUETOOTH_CONNECT,
                 status,
+                requested = requested,
+                markRequested = viewModel::markPermissionRequested,
                 launch = { runtimeLauncher.launch(it) },
                 openSettings = { startSafely(viewModel.settingsIntent(status.kind), null) },
             )
@@ -110,6 +116,8 @@ fun PermissionsScreen(
                 arrayOf(Manifest.permission.POST_NOTIFICATIONS),
                 Manifest.permission.POST_NOTIFICATIONS,
                 status,
+                requested = requested,
+                markRequested = viewModel::markPermissionRequested,
                 launch = { runtimeLauncher.launch(it) },
                 openSettings = { startSafely(viewModel.settingsIntent(status.kind), null) },
             )
@@ -119,7 +127,9 @@ fun PermissionsScreen(
                     arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
                     Manifest.permission.ACCESS_FINE_LOCATION,
                     status,
-                    launch = { runtimeLauncher.launch(it) },
+                    requested = requested,
+                markRequested = viewModel::markPermissionRequested,
+                launch = { runtimeLauncher.launch(it) },
                     openSettings = { startSafely(viewModel.settingsIntent(status.kind), null) },
                 )
                 // "Immer zulassen" muss separat angefragt werden; Android öffnet dafür die Standort-Seite.
@@ -128,7 +138,9 @@ fun PermissionsScreen(
                     arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION),
                     Manifest.permission.ACCESS_BACKGROUND_LOCATION,
                     status.copy(state = GrantState.DENIED),
-                    launch = { runtimeLauncher.launch(it) },
+                    requested = requested,
+                markRequested = viewModel::markPermissionRequested,
+                launch = { runtimeLauncher.launch(it) },
                     openSettings = { startSafely(viewModel.settingsIntent(status.kind), null) },
                 )
                 GrantState.GRANTED -> Unit
@@ -212,6 +224,8 @@ private fun requestRuntime(
     permissions: Array<String>,
     primary: String,
     status: PermissionStatus,
+    requested: Set<String>,
+    markRequested: (String) -> Unit,
     launch: (Array<String>) -> Unit,
     openSettings: () -> Unit,
 ) {
@@ -219,29 +233,19 @@ private fun requestRuntime(
     // Nach zweimaliger Ablehnung zeigt Android keinen Dialog mehr – dann in die App-Infos.
     val permanentlyDenied = status.state == GrantState.DENIED &&
         activity != null && !activity.shouldShowRequestPermissionRationale(primary) &&
-        PermissionPrefs.wasRequested(activity, primary)
+        primary in requested
     if (permanentlyDenied) {
         openSettings()
     } else {
-        activity?.let { PermissionPrefs.markRequested(it, primary) }
+        markRequested(primary)
         launch(permissions)
-    }
-}
-
-/** Merkt sich, ob eine Runtime-Berechtigung schon einmal angefragt wurde. */
-private object PermissionPrefs {
-    private const val NAME = "permission_requests"
-    fun wasRequested(activity: Activity, permission: String) =
-        activity.getSharedPreferences(NAME, Activity.MODE_PRIVATE).getBoolean(permission, false)
-
-    fun markRequested(activity: Activity, permission: String) {
-        activity.getSharedPreferences(NAME, Activity.MODE_PRIVATE).edit { putBoolean(permission, true) }
     }
 }
 
 @Composable
 private fun PermissionRow(status: PermissionStatus, onClick: () -> Unit) {
-    SectionCard(Modifier.clickable(onClick = onClick)) {
+    // Eine Karte = ein Button mit zusammengefasster Ansage (Titel, Beschreibung, Status).
+    SectionCard(Modifier.clickable(role = Role.Button, onClick = onClick).semantics(mergeDescendants = true) {}) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             val (icon, color) = when (status.state) {
                 GrantState.GRANTED -> Icons.Default.CheckCircle to StatusColors.Granted

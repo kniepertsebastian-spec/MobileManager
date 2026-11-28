@@ -33,6 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -177,7 +178,7 @@ fun FocusBrakeScreen(onBack: () -> Unit, viewModel: FocusVolumeViewModel = hiltV
     val apps by viewModel.apps.collectAsStateWithLifecycle()
     val status by viewModel.status.collectAsStateWithLifecycle()
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh() }
-    var query by remember { mutableStateOf("") }
+    var query by rememberSaveable { mutableStateOf("") }
     val sorted = remember(apps, settings.focusPackages, query) {
         apps.filter { query.isBlank() || it.label.contains(query, ignoreCase = true) }
             .sortedWith(compareByDescending<LaunchableApp> { it.packageName in settings.focusPackages }.thenBy { it.label.lowercase() })
@@ -292,7 +293,7 @@ fun AppVolumeScreen(onBack: () -> Unit, viewModel: FocusVolumeViewModel = hiltVi
     }
 
     if (picking) {
-        var query by remember { mutableStateOf("") }
+        var query by rememberSaveable { mutableStateOf("") }
         val existing = rules.map { it.packageName }.toSet()
         val filtered = apps.filter { it.packageName !in existing && (query.isBlank() || it.label.contains(query, ignoreCase = true)) }
         AlertDialog(

@@ -1,9 +1,24 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
 }
+
+/**
+ * Phase 4.1: reproduzierbare Release-Signatur. Die Zugangsdaten stehen nie im Repo, sondern entweder
+ * - in `keystore.properties` im Projektordner (per .gitignore ausgeschlossen, Vorlage: keystore.properties.example) oder
+ * - in Umgebungsvariablen `MM_KEYSTORE_FILE`, `MM_KEYSTORE_PASSWORD`, `MM_KEY_ALIAS`, `MM_KEY_PASSWORD` (z. B. für CI).
+ * Fehlt beides, entsteht eine unsignierte Release-APK.
+ */
+val releaseKeystore = Properties().apply {
+    rootProject.file("keystore.properties").takeIf { it.exists() }?.inputStream()?.use(::load)
+}
+
+fun signingValue(property: String, env: String): String? =
+    releaseKeystore.getProperty(property)?.takeIf { it.isNotBlank() } ?: System.getenv(env)?.takeIf { it.isNotBlank() }
 
 android {
     namespace = "app.mobilemanager"
@@ -20,8 +35,24 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        val storePath = signingValue("storeFile", "MM_KEYSTORE_FILE")
+        if (storePath != null) {
+            create("release") {
+                storeFile = rootProject.file(storePath)
+                storePassword = signingValue("storePassword", "MM_KEYSTORE_PASSWORD")
+                keyAlias = signingValue("keyAlias", "MM_KEY_ALIAS")
+                keyPassword = signingValue("keyPassword", "MM_KEY_PASSWORD")
+                enableV1Signing = false
+                enableV2Signing = true
+                enableV3Signing = true
+            }
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig = signingConfigs.findByName("release")
             // Phase 4.0: R8 verkleinert und optimiert (ohne Verschleierung, siehe proguard-rules.pro).
             isMinifyEnabled = true
             isShrinkResources = true
@@ -42,6 +73,11 @@ android {
             // Jakarta Mail / Activation bringen identische Lizenzdateien mit
             excludes += setOf("META-INF/NOTICE.md", "META-INF/LICENSE.md")
         }
+    }
+
+    testOptions {
+        // ViewModel-Tests auf der JVM: Android-Stubs liefern Standardwerte statt Exceptions.
+        unitTests.isReturnDefaultValues = true
     }
 
     buildFeatures {
@@ -113,8 +149,15 @@ dependencies {
     // Phase 4.8: EXIF-Entferner im Teilen-Menü
     implementation(libs.androidx.exifinterface)
 
+    // room-testing (MigrationTestHelper) braucht kotlinx-serialization ≥ 1.8; die App-Laufzeit zog bisher 1.7.3
+    // und AGP gleicht androidTest daran an → AbstractMethodError beim Lesen der Schemas.
+    constraints {
+        implementation(libs.kotlinx.serialization.core) { because("room-testing 2.8 braucht ≥ 1.8.1") }
+    }
+
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.mockk)
 
     // Phase 4.0: Instrumentation-Tests (Room-Migrationen, Compose-UI)
     androidTestImplementation(libs.androidx.test.ext.junit)

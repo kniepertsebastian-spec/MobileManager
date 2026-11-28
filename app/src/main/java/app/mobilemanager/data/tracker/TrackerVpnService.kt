@@ -1,5 +1,6 @@
 package app.mobilemanager.data.tracker
 
+import android.app.ForegroundServiceStartNotAllowedException
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
@@ -20,6 +21,8 @@ import android.system.StructPollfd
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import app.mobilemanager.data.work.AppNotifications
+import app.mobilemanager.di.AppCoroutines
+import app.mobilemanager.di.ApplicationScope
 import app.mobilemanager.domain.extras.DnsMessages
 import app.mobilemanager.domain.extras.DomainMatcher
 import app.mobilemanager.domain.extras.IpPackets
@@ -29,15 +32,14 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.MediaType.Companion.toMediaType
@@ -93,13 +95,14 @@ object TrackerVpnState {
     private val _dohFallbacks = MutableStateFlow(0)
     val dohFallbacks: StateFlow<Int> = _dohFallbacks.asStateFlow()
 
+    // Aufrufe kommen parallel aus Lese-Thread und Weiterleitungs-Coroutines → atomar erhöhen.
     internal fun countDoh(ok: Boolean) {
-        if (ok) _dohAnswered.value += 1 else _dohFallbacks.value += 1
+        if (ok) _dohAnswered.update { it + 1 } else _dohFallbacks.update { it + 1 }
     }
 
     internal fun countQuery(blocked: Boolean) {
-        _sessionQueries.value += 1
-        if (blocked) _sessionBlocked.value += 1
+        _sessionQueries.update { it + 1 }
+        if (blocked) _sessionBlocked.update { it + 1 }
     }
 }
 
@@ -110,9 +113,19 @@ class TrackerVpnController @Inject constructor(@ApplicationContext private val c
     /** `null`, wenn die VPN-Zustimmung bereits erteilt ist. */
     fun prepareIntent(): Intent? = VpnService.prepare(context)
 
-    fun start() {
-        if (prepareIntent() != null) return
-        runCatching { ContextCompat.startForegroundService(context, Intent(context, TrackerVpnService::class.java)) }
+    /** @return `false`, wenn die VPN-Zustimmung fehlt oder Android den Vordergrunddienst nicht starten lässt. */
+    fun start(): Boolean {
+        if (prepareIntent() != null) return false
+        return try {
+            ContextCompat.startForegroundService(context, Intent(context, TrackerVpnService::class.java))
+            true
+        } catch (_: ForegroundServiceStartNotAllowedException) {
+            false
+        } catch (_: IllegalStateException) {
+            false
+        } catch (_: SecurityException) {
+            false
+        }
     }
 
     fun stop() {
@@ -146,9 +159,12 @@ class TrackerVpnService : VpnService() {
     @Inject lateinit var blocklist: TrackerBlocklistRepository
     @Inject lateinit var stats: TrackerStatsRepository
     @Inject lateinit var notifications: AppNotifications
+    /** Überlebt den Dienst – für Einstellungen und den letzten Statistik-Flush nach dem Stopp. */
+    @Inject @ApplicationScope lateinit var appScope: CoroutineScope
 
     private var tun: ParcelFileDescriptor? = null
     private var scope: CoroutineScope? = null
+    private var readThread: Thread? = null
     @Volatile private var running = false
     @Volatile private var matcher = DomainMatcher(emptySet())
     @Volatile private var dohUrl = ""
@@ -161,7 +177,7 @@ class TrackerVpnService : VpnService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
-            launchDetached { settings.setEnabled(false) }
+            appScope.launch { settings.setEnabled(false) }
             shutdown()
             return START_NOT_STICKY
         }
@@ -172,7 +188,7 @@ class TrackerVpnService : VpnService() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0,
         )
         // Vom System gestartet ("Durchgehend aktives VPN") → Schalter in der App mitziehen.
-        if (intent?.action == SERVICE_INTERFACE) launchDetached { settings.setEnabled(true) }
+        if (intent?.action == SERVICE_INTERFACE) appScope.launch { settings.setEnabled(true) }
         if (tun == null && !establish()) {
             shutdown()
             return START_NOT_STICKY
@@ -200,7 +216,7 @@ class TrackerVpnService : VpnService() {
         TrackerVpnState.setRunning(true)
         upstream.start()
 
-        val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val serviceScope = AppCoroutines.scope("TrackerVpn", Dispatchers.IO)
         scope = serviceScope
         serviceScope.launch { blocklist.matcher.collect { matcher = it } }
         serviceScope.launch { settings.settings.collect { dohUrl = it.dohUrl } }
@@ -217,7 +233,7 @@ class TrackerVpnService : VpnService() {
                 }
             }
         }
-        Thread({ readLoop(fd) }, "tracker-vpn").start()
+        readThread = Thread({ readLoop(fd) }, "tracker-vpn").also { it.start() }
         return true
     }
 
@@ -229,7 +245,7 @@ class TrackerVpnService : VpnService() {
             events = OsConstants.POLLIN.toShort()
         }
         val buffer = ByteArray(MAX_PACKET)
-        while (running) {
+        while (running && !Thread.currentThread().isInterrupted) {
             poll.revents = 0
             val ready = try {
                 Os.poll(arrayOf(poll), POLL_TIMEOUT_MS)
@@ -333,15 +349,22 @@ class TrackerVpnService : VpnService() {
         domainCounts.getOrPut(domain) { AtomicInteger() }.incrementAndGet()
     }
 
-    private suspend fun flushStats() {
-        val apps = appCounts.keys.associateWith { appCounts[it]?.getAndSet(0) ?: 0 }
-        val domains = domainCounts.keys.associateWith { domainCounts[it]?.getAndSet(0) ?: 0 }
-        if (apps.values.any { it > 0 }) runCatching { stats.add(apps, domains) }
+    /** Nimmt die offenen Zähler als unveränderlichen Snapshot heraus (und setzt sie dabei auf 0). */
+    private fun takeStats(): Pair<Map<String, Int>, Map<String, Int>> =
+        appCounts.keys.associateWith { appCounts[it]?.getAndSet(0) ?: 0 }.filterValues { it > 0 } to
+            domainCounts.keys.associateWith { domainCounts[it]?.getAndSet(0) ?: 0 }.filterValues { it > 0 }
+
+    private suspend fun persist(snapshot: Pair<Map<String, Int>, Map<String, Int>>) {
+        if (snapshot.first.isNotEmpty() || snapshot.second.isNotEmpty()) {
+            runCatching { stats.add(snapshot.first, snapshot.second) }
+        }
     }
+
+    private suspend fun flushStats() = persist(takeStats())
 
     override fun onRevoke() {
         // Ein anderes VPN wurde gestartet oder die Zustimmung entzogen – Modul bleibt aus.
-        launchDetached { settings.setEnabled(false) }
+        appScope.launch { settings.setEnabled(false) }
         notifications.showTrackerRevoked()
         shutdown()
         super.onRevoke()
@@ -357,7 +380,13 @@ class TrackerVpnService : VpnService() {
         running = false
         scope?.cancel()
         scope = null
-        if (wasRunning) runBlocking(Dispatchers.IO) { runCatching { flushStats() } }
+        readThread?.interrupt()
+        readThread = null
+        // Kein Blockieren des Main-Threads: Snapshot jetzt ziehen, asynchron im App-Scope schreiben.
+        if (wasRunning) {
+            val snapshot = takeStats()
+            appScope.launch { persist(snapshot) }
+        }
         synchronized(writeLock) {
             runCatching { tun?.close() }
             tun = null
@@ -366,10 +395,6 @@ class TrackerVpnService : VpnService() {
         TrackerVpnState.setRunning(false)
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()
-    }
-
-    private fun launchDetached(block: suspend () -> Unit) {
-        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch { block() }
     }
 
     companion object {

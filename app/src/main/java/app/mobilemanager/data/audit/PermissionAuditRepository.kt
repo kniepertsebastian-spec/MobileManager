@@ -70,6 +70,7 @@ class PermissionAuditRepository @Inject constructor(
         }
     }
 
+    @Suppress("DEPRECATION") // unsafeCheckOpNoThrow ist der einzige öffentliche Weg, den AppOp-Modus fremder Apps zu lesen
     private fun isAppOpAllowed(op: String, info: PackageInfo): Boolean {
         val uid = info.applicationInfo?.uid ?: return false
         val appOps = context.getSystemService(AppOpsManager::class.java) ?: return false
